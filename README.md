@@ -5,7 +5,7 @@ Autonomous multi-agent swarm for OpenMetadata data governance using LangGraph.
 ## Project Structure
 
 - `src/` - Source code
-  - `graph/` - LangGraph workflow definitions (Coordinator, Planner, Dispatcher)
+  - `graph/` - LangGraph workflow definitions (Coordinator, Planner, Dispatcher, Agent Executor, Integrity Critic, Action Executor)
   - `agents/` - SwarmAgent implementations (plugin system)
   - `mcp/` - OpenMetadata MCP client wrappers
   - `ui/` - Streamlit and Slack interfaces
