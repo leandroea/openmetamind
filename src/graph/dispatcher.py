@@ -50,48 +50,38 @@ class Dispatcher:
         # Get completed subtasks from state
         completed_subtasks = set(state.get("completed_subtasks", []))
         
-        # Determine which subtasks are ready to execute (dependencies satisfied)
+        # Determine which subtasks are ready to execute (dependencies satisfied and not yet completed)
         sends = []
         
-        # For simplicity in this scaffold, we'll execute the first parallel group
-        # In a full implementation, we'd track the current parallel group based on completed dependencies
-        if plan.parallel_groups and len(plan.parallel_groups) > 0:
-            current_parallel_group = plan.parallel_groups[0]  # First group
+        # Check all subtasks in the plan
+        for subtask in plan.subtasks:
+            # Skip if already completed
+            if subtask.subtask_id in completed_subtasks:
+                continue
             
-            for subtask_id in current_parallel_group:
-                # Find the subtask object
-                subtask = None
-                for st in plan.subtasks:
-                    if st.subtask_id == subtask_id:
-                        subtask = st
-                        break
+            # Check if all dependencies are satisfied
+            dependencies_satisfied = all(
+                dep in completed_subtasks for dep in subtask.dependencies
+            )
+            
+            if dependencies_satisfied:
+                # Prepare inputs for the agent from the blackboard
+                blackboard = state.get("blackboard", {})
+                inputs = {}
+                for key in subtask.required_inputs:
+                    if key in blackboard:
+                        inputs[key] = blackboard[key]
                 
-                if not subtask:
-                    continue
-                
-                # Check if dependencies are satisfied
-                dependencies_satisfied = all(
-                    dep in completed_subtasks for dep in subtask.dependencies
-                )
-                
-                if dependencies_satisfied:
-                    # Prepare inputs for the agent from the blackboard
-                    blackboard = state.get("blackboard", {})
-                    inputs = {}
-                    for key in subtask.required_inputs:
-                        if key in blackboard:
-                            inputs[key] = blackboard[key]
-                    
-                    # Create Send object for agent_executor node
-                    sends.append(Send(
-                        "agent_executor",
-                        {
-                            "subtask_id": subtask.subtask_id,
-                            "agent_id": subtask.agent_id,
-                            "task": subtask.task_description,
-                            "inputs": inputs
-                        }
-                    ))
+                # Create Send object for agent_executor node
+                sends.append(Send(
+                    "agent_executor",
+                    {
+                        "subtask_id": subtask.subtask_id,
+                        "agent_id": subtask.agent_id,
+                        "task": subtask.task_description,
+                        "inputs": inputs
+                    }
+                ))
         
         return sends
 

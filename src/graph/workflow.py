@@ -2,7 +2,7 @@
 LangGraph workflow for OpenMetaMind swarm.
 
 This module defines the complete workflow graph connecting all nodes:
-Coordinator -> Planner -> Dispatcher -> Agent Executors -> Integrity Critic -> [Action Executor | Human Gate]
+Coordinator -> Planner -> Dispatcher -> [Agent Executors (parallel)] -> Integrity Critic -> [Action Executor | Human Gate]
 """
 
 from typing import Literal, Dict, Any
@@ -72,14 +72,9 @@ def create_openmetamind_workflow(checkpointer=None):
         }
     )
     
-    workflow.add_conditional_edges(
-        "dispatcher",
-        lambda state: state.get("next", "agent_executor"),
-        {
-            "agent_executor": "agent_executor",
-            "planner": "planner"  # For dynamic replanning
-        }
-    )
+    # Dispatcher uses Send API for parallel execution - no conditional edge needed
+    # The dispatcher returns a list of Send objects that LangGraph executes automatically
+    workflow.add_edge("dispatcher", "agent_executor")
     
     workflow.add_conditional_edges(
         "agent_executor",

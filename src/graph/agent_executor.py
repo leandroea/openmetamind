@@ -74,7 +74,8 @@ class AgentExecutor:
             )
             return {
                 "findings": [error_finding.dict() if hasattr(error_finding, 'dict') else error_finding],
-                "agent_statuses": {agent_id: "failed"} if agent_id else {}
+                "agent_statuses": {agent_id: "failed"} if agent_id else {},
+                "completed_subtasks": [subtask_id] if subtask_id else []  # Mark as completed even if failed
             }
         
         # Get MCP client
@@ -87,10 +88,11 @@ class AgentExecutor:
                 
                 logger.info(f"Agent Executor completed: agent={agent_id}, confidence={finding.confidence}")
                 
-                # Return the finding to be added to blackboard
+                # Return the finding to be added to blackboard and mark agent as completed
                 return {
                     "findings": [finding.dict() if hasattr(finding, 'dict') else finding],
-                    "agent_statuses": {agent_id: "completed"}
+                    "agent_statuses": {agent_id: "completed"},
+                    "completed_subtasks": [subtask_id]  # Mark this subtask as completed
                 }
                 
         except Exception as e:
@@ -111,7 +113,8 @@ class AgentExecutor:
             )
             return {
                 "findings": [error_finding.dict() if hasattr(error_finding, 'dict') else error_finding],
-                "agent_statuses": {agent_id: "failed"}
+                "agent_statuses": {agent_id: "failed"},
+                "completed_subtasks": [subtask_id]  # Mark as completed even if failed
             }
 
 
@@ -121,6 +124,7 @@ def agent_executor_node(state: SwarmState) -> Dict[str, Any]:
     Synchronous wrapper for the AgentExecutor async class.
     
     LangGraph expects synchronous nodes, so we run the async executor in an event loop.
+    The Send API passes the payload as the state to this function.
     """
     # Create a new event loop for this execution
     # In a production setting, you might want to reuse loops or use async nodes
@@ -128,7 +132,7 @@ def agent_executor_node(state: SwarmState) -> Dict[str, Any]:
     asyncio.set_event_loop(loop)
     try:
         # The state passed to this function contains the agent execution parameters
-        # We need to extract them and call the async executor
+        # from the Send API: subtask_id, agent_id, task, inputs
         result = loop.run_until_complete(
             AgentExecutor()(
                 {
