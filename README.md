@@ -47,10 +47,35 @@ See `pyproject.toml` for the full list.
 
 ## Development
 
-- Run tests: `pytest`
+- Run tests: `pytest tests/`
+- Run tests with coverage: `pytest tests/ --cov=src`
 - Format code: `black src`
 - Lint code: `ruff check src`
 - Type check: `mypy src`
+
+## Demo Data
+
+To populate OpenMetadata with demo data for testing:
+
+```bash
+# Set environment variables
+export OPENMETADATA_JWT_TOKEN=your_token_here
+export CREATE_REAL_DATA=true  # Set to true to create real data
+
+# Run the demo data script
+python scripts/demo_data.py
+```
+
+## Architecture
+
+The OpenMetaMind swarm follows this flow:
+
+1. **Coordinator** - User's single point of contact, classifies intent
+2. **Planner** - Decomposes tasks, selects agents, creates execution plan
+3. **Dispatcher** - Spawns agents in parallel using LangGraph Send API
+4. **Agent Executors** - Execute tasks using real MCP calls to OpenMetadata
+5. **Integrity Critic** - Validates findings, detects conflicts, makes routing decisions
+6. **Action Executor** - Performs MCP write operations (only component with write permissions)
 
 ## License
 
