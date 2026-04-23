@@ -4,15 +4,14 @@ Integrity Critic node for the OpenMetaMind swarm.
 Validates all findings, detects conflicts, assigns confidence, and decides routing.
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from langchain_core.messages import BaseMessage
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 import os
 
-from ..models.state import SwarmState, AgentFinding, Conflict, CriticDecision
-from ..models.plan import ExecutionPlan
+from ..models.state import SwarmState, AgentFinding, Conflict, CriticDecision, CriticReview, FindingAssessment, ActionType, ProposedAction
 
 
 class IntegrityCritic:
@@ -20,10 +19,19 @@ class IntegrityCritic:
     The Integrity Critic node in the LangGraph workflow.
     
     Responsibilities:
-    - Validate all findings from agents
-    - Detect conflicts between findings
-    - Assign final confidence scores
-    - Decide routing: auto-approve, human gate, or reject/retry
+    - Read ALL findings from blackboard
+    - Group findings by target_entity
+    - Use LLM to detect conflicts between findings
+    - For each finding: assign validity_score 0.0-1.0
+    - Check if mcp_tool_calls are present (sufficient evidence)
+    - Make CriticDecision: 
+        - AUTO_APPROVE (all findings >0.9, no conflicts)
+        - ESCALATE_TO_HUMAN (any conflict or finding <0.7)
+        - REJECT_AND_RETRY (all findings <0.5)
+    - Write conflicts to blackboard if detected
+    - Aggregate proposed_actions into approved_actions, escalated_actions
+    - Write critic_review to state
+    - Route based on decision
     """
 
     def __init__(self):
@@ -41,30 +49,31 @@ class IntegrityCritic:
             max_tokens=1000
         )
         
-        # Critic analysis prompt
+        # Critic analysis prompt - focused on conflict detection and validation
         self.analysis_prompt = ChatPromptTemplate.from_template(
             """You are the Integrity Critic for OpenMetaMind, responsible for validating agent findings
             and ensuring data quality and consistency.
             
-            Findings to review:
-            {findings}
-            
-            Execution plan that generated these findings:
-            {execution_plan}
+            Findings to review (grouped by target entity):
+            {findings_by_entity}
             
             Your task is to:
             1. Validate each finding for correctness and completeness
-            2. Detect any conflicts between findings
-            3. Assign validity scores (0.0-1.0) to each finding
-            4. Determine if conflicts can be resolved automatically or need human intervention
-            5. Make a final routing decision
+            2. Detect any conflicts between findings about the same entity
+            3. Assign validity scores (0.0-1.0) to each finding based on:
+               - Presence of mcp_tool_calls (evidence)
+               - Internal consistency
+               - Plausibility of claims
+            4. Determine if conflicts exist between findings
+            5. Make a final routing decision based on these rules:
+               - AUTO_APPROVE: All findings have validity_score > 0.9 AND no conflicts detected
+               - ESCALATE_TO_HUMAN: Any conflict detected OR any finding has validity_score < 0.7
+               - REJECT_AND_RETRY: All findings have validity_score < 0.5
             
             Respond with a JSON object containing:
             {{
                 "findings_reviewed": <integer>,
                 "conflicts_detected": <integer>,
-                "conflicts_resolved": <integer>,
-                "conflicts_escalated": <integer>,
                 "finding_assessments": [
                     {{
                         "finding_id": "<finding_id>",
@@ -74,17 +83,20 @@ class IntegrityCritic:
                         "mcp_calls_verified": <boolean>
                     }}
                 ],
+                "conflicts": [
+                    {{
+                        "finding_ids": ["<id1>", "<id2>"],
+                        "agents_involved": ["<agent1>", "<agent2>"],
+                        "description": "<description of conflict>",
+                        "severity": "warning" | "critical"
+                    }}
+                ],
                 "decision": "AUTO_APPROVE" | "ESCALATE_TO_HUMAN" | "REJECT_AND_RETRY",
                 "reasoning": "<explanation of your decision>",
                 "approved_actions": [<list of approved action dicts>],
                 "rejected_actions": [<list of rejected action dicts>],
                 "escalated_actions": [<list of escalated action dicts>]
             }}
-            
-            Guidelines:
-            - AUTO_APPROVE: High confidence, no conflicts, sufficient evidence
-            - ESCALATE_TO_HUMAN: Conflicts that need human judgment, low confidence, or insufficient evidence
-            - REJECT_AND_RETRY: Findings are fundamentally flawed, need to redo with different approach
             """
         )
         
@@ -102,102 +114,170 @@ class IntegrityCritic:
             Dictionary with state updates including critic review and routing decision
         """
         blackboard = state.get("blackboard", {})
-        findings = blackboard.get("findings", [])
-        execution_plan = state.get("execution_plan", {})
+        findings_raw = blackboard.get("findings", [])
+        
+        # Convert raw findings to AgentFinding objects if needed
+        findings: List[AgentFinding] = []
+        for f in findings_raw:
+            if isinstance(f, dict):
+                findings.append(AgentFinding(**f))
+            else:
+                findings.append(f)  # Already an AgentFinding object
         
         if not findings:
             # No findings to review
+            critic_review = CriticReview(
+                findings_reviewed=0,
+                conflicts_detected=0,
+                conflicts_resolved=0,
+                conflicts_escalated=0,
+                decision=CriticDecision.ESCALATE_TO_HUMAN,
+                reasoning="No findings to review",
+                approved_actions=[],
+                rejected_actions=[],
+                escalated_actions=[]
+            )
+            
             return {
-                "critic_review": {
-                    "findings_reviewed": 0,
-                    "conflicts_detected": 0,
-                    "conflicts_resolved": 0,
-                    "conflicts_escalated": 0,
-                    "decision": "ESCALATE_TO_HUMAN",
-                    "reasoning": "No findings to review",
-                    "approved_actions": [],
-                    "rejected_actions": [],
-                    "escalated_actions": []
-                },
-                "next": "human_gate"  # Go to human gate since no findings
+                "critic_review": critic_review.dict(),
+                "next": "human_gate"
             }
+        
+        # Group findings by target_entity for conflict detection
+        findings_by_entity: Dict[str, List[AgentFinding]] = {}
+        for finding in findings:
+            entity = finding.target_entity or "unknown"
+            if entity not in findings_by_entity:
+                findings_by_entity[entity] = []
+            findings_by_entity[entity].append(finding)
         
         # Format findings for the prompt
         findings_str = ""
-        for finding in findings:
-            if isinstance(finding, dict):
-                finding_str += f"- Finding ID: {finding.get('finding_id', 'unknown')}\n"
-                finding_str += f"  Agent: {finding.get('agent_id', 'unknown')}\n"
-                finding_str += f"  Summary: {finding.get('summary', 'no summary')}\n"
-                finding_str += f"  Confidence: {finding.get('confidence', 0.0)}\n"
-                finding_str += f"  Details: {finding.get('details', {})}\n\n"
-            else:
-                # Assuming it's an AgentFinding object
-                finding_str += f"- Finding ID: {getattr(finding, 'finding_id', 'unknown')}\n"
-                finding_str += f"  Agent: {getattr(finding, 'agent_id', 'unknown')}\n"
-                finding_str += f"  Summary: {getattr(finding, 'summary', 'no summary')}\n"
-                finding_str += f"  Confidence: {getattr(finding, 'confidence', 0.0)}\n"
-                finding_str += f"  Details: {getattr(finding, 'details', {})}\n\n"
+        for entity, entity_findings in findings_by_entity.items():
+            findings_str += f"Entity: {entity}\n"
+            for finding in entity_findings:
+                findings_str += f"  - Finding ID: {finding.finding_id}\n"
+                findings_str += f"    Agent: {finding.agent_id}\n"
+                findings_str += f"    Summary: {finding.summary}\n"
+                findings_str += f"    Confidence: {finding.confidence}\n"
+                findings_str += f"    MCP Tool Calls: {len(finding.mcp_tool_calls)}\n"
+                findings_str += f"    Details: {finding.details}\n\n"
         
-        # Format execution plan for the prompt
-        plan_str = ""
-        if isinstance(execution_plan, dict):
-            plan_str = f"Subtasks: {len(execution_plan.get('subtasks', []))}\n"
-            plan_str += f"Parallel groups: {execution_plan.get('parallel_groups', [])}\n"
-        else:
-            plan_str = f"Execution plan object: {type(execution_plan)}"
-        
-        # Analyze findings
+        # Analyze findings with LLM
         try:
             critic_result = self.analysis_chain.invoke({
-                "findings": findings_str,
-                "execution_plan": plan_str
+                "findings_by_entity": findings_str
             })
             
-            # Convert to expected format
-            critic_review = {
-                "findings_reviewed": critic_result.get("findings_reviewed", len(findings)),
-                "conflicts_detected": critic_result.get("conflicts_detected", 0),
-                "conflicts_resolved": critic_result.get("conflicts_resolved", 0),
-                "conflicts_escalated": critic_result.get("conflicts_escalated", 0),
-                "decision": critic_result.get("decision", "ESCALATE_TO_HUMAN"),
-                "reasoning": critic_result.get("reasoning", "Critic analysis completed"),
-                "approved_actions": critic_result.get("approved_actions", []),
-                "rejected_actions": critic_result.get("rejected_actions", []),
-                "escalated_actions": critic_result.get("escalated_actions", [])
-            }
+            # Process the LLM result
+            finding_assessments = []
+            for fa_dict in critic_result.get("finding_assessments", []):
+                finding_assessments.append(FindingAssessment(**fa_dict))
+            
+            conflicts = []
+            for conflict_dict in critic_result.get("conflicts", []):
+                conflicts.append(Conflict(**conflict_dict))
+            
+            critic_review = CriticReview(
+                findings_reviewed=critic_result.get("findings_reviewed", len(findings)),
+                conflicts_detected=len(conflicts),
+                conflicts_resolved=0,  # Would be updated if we auto-resolve
+                conflicts_escalated=len([c for c in conflicts if c.severity == "critical"]),
+                decision=CriticDecision(critic_result.get("decision", "escalate_to_human")),
+                reasoning=critic_result.get("reasoning", "Critic analysis completed"),
+                approved_actions=[ProposedAction(**a) for a in critic_result.get("approved_actions", [])],
+                rejected_actions=[ProposedAction(**a) for a in critic_result.get("rejected_actions", [])],
+                escalated_actions=[ProposedAction(**a) for a in critic_result.get("escalated_actions", [])]
+            )
             
         except Exception as e:
-            # Fallback critic decision
-            critic_review = {
-                "findings_reviewed": len(findings),
-                "conflicts_detected": 0,
-                "conflicts_resolved": 0,
-                "conflicts_escalated": 0,
-                "decision": "ESCALATE_TO_HUMAN",
-                "reasoning": f"Critic analysis failed: {str(e)}. Escalating to human for safety.",
-                "approved_actions": [],
-                "rejected_actions": [],
-                "escalated_actions": []
-            }
+            # Fallback critic decision based on simple heuristics
+            finding_assessments = []
+            conflicts = []
+            
+            for finding in findings:
+                # Simple validity score based on confidence and MCP calls
+                has_evidence = len(finding.mcp_tool_calls) > 0
+                validity_score = min(finding.confidence + (0.1 if has_evidence else 0.0), 1.0)
+                
+                finding_assessments.append(FindingAssessment(
+                    finding_id=finding.finding_id,
+                    validity_score=validity_score,
+                    is_consistent_with_others=True,  # Simplified - would check for conflicts
+                    has_sufficient_evidence=has_evidence,
+                    mcp_calls_verified=has_evidence
+                ))
+            
+            # Simple conflict detection: findings with different summaries for same entity
+            for entity, entity_findings in findings_by_entity.items():
+                if len(entity_findings) > 1:
+                    # Check if summaries are significantly different
+                    summaries = [f.summary.lower() for f in entity_findings]
+                    if len(set(summaries)) > 1:  # Different summaries
+                        # Create a conflict between the first two findings
+                        conflicts.append(Conflict(
+                            finding_ids=[entity_findings[0].finding_id, entity_findings[1].finding_id],
+                            agents_involved=[entity_findings[0].agent_id, entity_findings[1].agent_id],
+                            description=f"Conflicting summaries for entity {entity}: '{entity_findings[0].summary}' vs '{entity_findings[1].summary}'",
+                            severity="warning"
+                        ))
+            
+            # Determine decision based on simple rules
+            validity_scores = [fa.validity_score for fa in finding_assessments]
+            has_conflicts = len(conflicts) > 0
+            
+            if all(score > 0.9 for score in validity_scores) and not has_conflicts:
+                decision = CriticDecision.AUTO_APPROVE
+            elif any(score < 0.7 for score in validity_scores) or has_conflicts:
+                decision = CriticDecision.ESCALATE_TO_HUMAN
+            else:
+                decision = CriticDecision.REJECT_AND_RETRY
+            
+            critic_review = CriticReview(
+                findings_reviewed=len(findings),
+                conflicts_detected=len(conflicts),
+                conflicts_resolved=0,
+                conflicts_escalated=len([c for c in conflicts if c.severity == "critical"]),
+                decision=decision,
+                reasoning=f"Fallback critic analysis: {len(findings)} findings reviewed, {len(conflicts)} conflicts detected",
+                approved_actions=[],
+                rejected_actions=[],
+                escalated_actions=[]
+            )
+            
+            # For fallback, we still need to collect all proposed actions as escalated (since we can't trust them)
+            all_proposed_actions = []
+            for finding in findings:
+                all_proposed_actions.extend(finding.proposed_actions)
+            critic_review.escalated_actions = all_proposed_actions
+        
+        # Add any new conflicts to the blackboard
+        updated_conflicts = list(blackboard.get("conflicts", []))
+        updated_conflicts.extend(conflicts)
         
         # Determine next step based on decision
-        decision = critic_review.get("decision", "ESCALATE_TO_HUMAN")
-        if decision == "AUTO_APPROVE":
+        decision = critic_review.decision
+        if decision == CriticDecision.AUTO_APPROVE:
             next_step = "action_executor"
-        elif decision == "REJECT_AND_RETRY":
+        elif decision == CriticDecision.REJECT_AND_RETRY:
             next_step = "planner"  # Go back to planner to regenerate plan
-        else:  # ESCALATE_TO_HUMAN or default
+        else:  # ESCALATE_TO_HUMAN
             next_step = "human_gate"
         
         # Prepare state updates
         updates = {
-            "critic_review": critic_review,
+            "critic_review": critic_review.dict(),
+            "blackboard": {
+                "findings": blackboard.get("findings", []),  # Keep existing findings
+                "conflicts": updated_conflicts,  # Add new conflicts
+                "agent_statuses": blackboard.get("agent_statuses", {}),
+                "execution_phase": "reviewing"
+            },
             "next": next_step
         }
         
         # If we have approved actions, add them to state for action executor
-        if critic_review.get("approved_actions"):
-            updates["approved_actions"] = critic_review["approved_actions"]
+        if critic_review.approved_actions:
+            updates["approved_actions"] = [action.dict() for action in critic_review.approved_actions]
         
         return updates

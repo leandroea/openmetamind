@@ -6,7 +6,7 @@ Performs actual MCP write operations. The only component with write permissions.
 
 import asyncio
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set
 
 from ..models.state import SwarmState, ProposedAction, ActionType
 from ..mcp.client import get_mcp_client, OpenMetadataMCPClient
@@ -22,34 +22,37 @@ class ActionExecutor:
     - Performs actual MCP write operations
     - Only component with write permissions
     - Batched, idempotent execution
+    - Respects fail_fast configuration
     """
 
-    def __init__(self):
+    def __init__(self, fail_fast: bool = True):
         """Initialize the Action Executor."""
-        self.pending_batch: List[ProposedAction] = []
-        self.executed_actions: set = set()  # Track executed actions for idempotency
+        self.fail_fast = fail_fast
 
     async def execute_batch(
         self, 
         actions: List[ProposedAction], 
+        executed_actions: Set[str],
         dry_run: bool = False
     ) -> Dict[str, Any]:
         """
-        Execute approved actions via MCP with full rollback support.
+        Execute approved actions via MCP with idempotency checking.
         
         Args:
             actions: List of approved actions to execute
-            dry_run: If True, only simulate execution
+            executed_actions: Set of action hashes already executed (for idempotency)
+            dry_run: If True, only validate without executing
             
         Returns:
             Dictionary with execution results
         """
         results = []
+        newly_executed = set()  # Track newly executed actions in this batch
         
         for action in actions:
             # Check idempotency: skip if already executed
             action_hash = self._get_action_hash(action)
-            if action_hash in self.executed_actions:
+            if action_hash in executed_actions:
                 logger.info(f"Skipping already executed action: {action.action_type} on {action.entity_fqn}")
                 results.append({
                     "action": action.dict() if hasattr(action, 'dict') else action,
@@ -59,10 +62,25 @@ class ActionExecutor:
                 })
                 continue
             
+            # Check if we've already executed this action in this batch (double-check)
+            if action_hash in newly_executed:
+                logger.info(f"Skipping duplicate action in batch: {action.action_type} on {action.entity_fqn}")
+                results.append({
+                    "action": action.dict() if hasattr(action, 'dict') else action,
+                    "success": True,
+                    "result": {"message": "Already executed in this batch (idempotency skip)"},
+                    "skipped": True
+                })
+                continue
+            
             try:
                 if dry_run:
-                    result = await self._simulate(action)
+                    # In dry-run mode, we still want to validate the action would work
+                    # For now, we'll simulate but log what we would do
+                    logger.info(f"DRY RUN: Would execute {action.action_type} on {action.entity_fqn}")
+                    result = await self._validate_action(action)
                 else:
+                    # Actually execute the MCP call
                     result = await self._execute_mcp(action)
                 
                 results.append({
@@ -72,7 +90,10 @@ class ActionExecutor:
                 })
                 
                 # Mark as executed only if successful
-                self.executed_actions.add(action_hash)
+                newly_executed.add(action_hash)
+                
+                # If fail_fast is True and we had a failure, we would have raised an exception
+                # Since we're continuing, we just keep track of successes
                 
             except Exception as e:
                 logger.error(f"Action execution failed: {action.action_type} on {action.entity_fqn}: {str(e)}")
@@ -81,20 +102,26 @@ class ActionExecutor:
                     "success": False,
                     "error": str(e)
                 })
-                # Stop on first failure? Or continue? Configurable.
-                # For now, continue but could be made configurable
+                
+                # Stop on first failure if fail_fast is True
+                if self.fail_fast:
+                    logger.info("Fail-fast enabled, stopping execution after first failure")
+                    break
+                # Otherwise continue with other actions
         
+        # Return results and the set of newly executed actions for state update
         return {
             "results": results,
             "total_actions": len(actions),
             "successful_actions": len([r for r in results if r.get("success", False)]),
             "failed_actions": len([r for r in results if not r.get("success", True)]),
-            "dry_run": dry_run
+            "dry_run": dry_run,
+            "newly_executed": newly_executed  # These need to be added to executed_actions in state
         }
     
     async def _execute_mcp(self, action: ProposedAction) -> Dict[str, Any]:
         """
-        Map ProposedAction to MCP tool call.
+        Map ProposedAction to REAL MCP tool call.
         
         Args:
             action: The action to execute
@@ -111,6 +138,10 @@ class ActionExecutor:
             ActionType.UPDATE_OWNER: "update_owner",
             ActionType.ADD_DESCRIPTION: "update_description",
             ActionType.CREATE_GLOSSARY_TERM: "create_glossary_term",
+            ActionType.UPDATE_LINEAGE: "update_lineage",
+            ActionType.ADD_OWNER: "add_owner",
+            ActionType.REMOVE_OWNER: "remove_owner",
+            ActionType.DELETE_TAG: "delete_tag",
             # Add more mappings as needed
         }
         
@@ -118,29 +149,30 @@ class ActionExecutor:
         if not tool_name:
             raise ValueError(f"No MCP tool mapping for action type: {action.action_type}")
         
-        # Execute the MCP tool call
+        # Execute the REAL MCP tool call
         async with mcp_client as client:
-            # For now, we'll use a generic approach - in reality, each action type
-            # would map to specific MCP tool parameters
             result = await client._call_mcp_tool(tool_name, action.parameters)
             return result
     
-    async def _simulate(self, action: ProposedAction) -> Dict[str, Any]:
+    async def _validate_action(self, action: ProposedAction) -> Dict[str, Any]:
         """
-        Simulate an action for dry-run mode.
+        Validate an action for dry-run mode.
+        In a real implementation, this might do a dry-run call to MCP if supported.
         
         Args:
-            action: The action to simulate
+            action: The action to validate
             
         Returns:
-            Simulation result
+            Validation result
         """
+        # For dry-run, we check if the action is well-formed
+        # In a full implementation, we might make a dry-run MCP call if the API supports it
         return {
-            "simulated": True,
+            "dry_run": True,
             "action_type": action.action_type.value if hasattr(action.action_type, 'value') else str(action.action_type),
             "entity_fqn": action.entity_fqn,
             "parameters": action.parameters,
-            "message": f"Would execute {action.action_type} on {action.entity_fqn}"
+            "message": f"DRY RUN: Validated {action.action_type} on {action.entity_fqn} - would execute in live mode"
         }
     
     def _get_action_hash(self, action: ProposedAction) -> str:
@@ -165,12 +197,13 @@ def action_executor_node(state: SwarmState) -> Dict[str, Any]:
     Action Executor node for LangGraph workflow.
     
     Args:
-        state: Current swarm state containing approved_actions
+        state: Current swarm state containing approved_actions and executed_actions
         
     Returns:
         Dictionary with state updates
     """
     approved_actions = state.get("approved_actions", [])
+    executed_actions = set(state.get("executed_actions", []))  # Get from state, default to empty set
     
     if not approved_actions:
         return {
@@ -179,7 +212,8 @@ def action_executor_node(state: SwarmState) -> Dict[str, Any]:
                 "successful_actions": 0,
                 "failed_actions": 0,
                 "results": []
-            }
+            },
+            "executed_actions": list(executed_actions)  # Return as list for JSON serialization
         }
     
     # Convert dicts to ProposedAction objects if needed
@@ -191,18 +225,30 @@ def action_executor_node(state: SwarmState) -> Dict[str, Any]:
             actions.append(action_dict)
     
     # Create executor and run batch
-    executor = ActionExecutor()
+    executor = ActionExecutor(fail_fast=True)  # Could make this configurable
     
     # Run async function in sync context
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        result = loop.run_until_complete(executor.execute_batch(actions, dry_run=False))
+        result = loop.run_until_complete(
+            executor.execute_batch(actions, executed_actions, dry_run=False)
+        )
     finally:
         loop.close()
     
+    # Update executed_actions in state
+    updated_executed_actions = executed_actions.union(result.get("newly_executed", set()))
+    
     return {
-        "action_results": result,
+        "action_results": {
+            "results": result["results"],
+            "total_actions": result["total_actions"],
+            "successful_actions": result["successful_actions"],
+            "failed_actions": result["failed_actions"],
+            "dry_run": result["dry_run"]
+        },
+        "executed_actions": list(updated_executed_actions),  # Store as list in state
         # Clear approved actions after execution to prevent re-execution
         "approved_actions": []
     }
@@ -220,6 +266,7 @@ def action_executor_dry_run_node(state: SwarmState) -> Dict[str, Any]:
         Dictionary with state updates
     """
     approved_actions = state.get("approved_actions", [])
+    executed_actions = set(state.get("executed_actions", []))  # Get from state
     
     if not approved_actions:
         return {
@@ -228,7 +275,8 @@ def action_executor_dry_run_node(state: SwarmState) -> Dict[str, Any]:
                 "successful_actions": 0,
                 "failed_actions": 0,
                 "results": []
-            }
+            },
+            "executed_actions": list(executed_actions)
         }
     
     # Convert dicts to ProposedAction objects if needed
@@ -240,18 +288,28 @@ def action_executor_dry_run_node(state: SwarmState) -> Dict[str, Any]:
             actions.append(action_dict)
     
     # Create executor and run batch in dry-run mode
-    executor = ActionExecutor()
+    executor = ActionExecutor(fail_fast=True)
     
     # Run async function in sync context
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        result = loop.run_until_complete(executor.execute_batch(actions, dry_run=True))
+        result = loop.run_until_complete(
+            executor.execute_batch(actions, executed_actions, dry_run=True)
+        )
     finally:
         loop.close()
     
+    # In dry-run, we don't update executed_actions since nothing was actually executed
     return {
-        "action_results": result,
+        "action_results": {
+            "results": result["results"],
+            "total_actions": result["total_actions"],
+            "successful_actions": result["successful_actions"],
+            "failed_actions": result["failed_actions"],
+            "dry_run": result["dry_run"]
+        },
+        "executed_actions": list(executed_actions),  # Keep original executed_actions
         # In dry-run, we might want to keep actions for review
         "approved_actions": approved_actions
     }

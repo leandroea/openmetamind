@@ -127,5 +127,6 @@ SwarmState = TypedDict(
         "current_parallel_group": List[str],
         "user_input": str,
         "coordinator_notes": Optional[str],
+        "executed_actions": List[str],  # List of action hashes that have been executed (for idempotency)
     },
 )
