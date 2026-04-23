@@ -7,7 +7,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Dict, Any
 
-from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import AIMessage, HumanMessage
 
 from src.graph.swarm_graph import build_swarm_graph
@@ -64,19 +64,21 @@ def mock_mcp_client():
 @pytest.fixture
 def in_memory_checkpointer():
     """Create an in-memory checkpointer for tests."""
-    return SqliteSaver.from_conn_string(":memory:")
+    return MemorySaver()
 
 
 @pytest.fixture
 def mock_llm():
     """Create a mocked LLM for deterministic tests."""
     mock = MagicMock()
-    mock.invoke = MagicMock(return_value=MagicMock(
-        content='{"intent": "delegate_lightweight", "reasoning": "Test"}'
-    ))
-    mock.ainvoke = AsyncMock(return_value=MagicMock(
-        content='{"intent": "delegate_lightweight", "reasoning": "Test"}'
-    ))
+    # Default: return delegate_lightweight intent for coordinator tests
+    delegate_response = MagicMock()
+    delegate_response.content = '{"intent": "delegate_lightweight", "reasoning": "Test delegation"}'
+    mock.invoke = MagicMock(return_value=delegate_response)
+    mock.ainvoke = AsyncMock(return_value=delegate_response)
+    # Also support the chain pattern (prompt | llm | parser)
+    # When used in a pipe chain, the mock needs to support the | operator
+    mock.__or__ = lambda self, other: MagicMock(invoke=MagicMock(return_value={"intent": "delegate_lightweight", "reasoning": "Test delegation"}))
     return mock
 
 

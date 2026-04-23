@@ -67,6 +67,8 @@ class TestCatalogScout:
             )
         ]
         mock_mcp_client.list_entities = AsyncMock(return_value=mock_entities)
+        mock_mcp_client.__aenter__ = AsyncMock(return_value=mock_mcp_client)
+        mock_mcp_client.__aexit__ = AsyncMock(return_value=None)
         
         finding = await agent.execute(
             task="list tables",

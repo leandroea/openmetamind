@@ -1,0 +1,29 @@
+# Core dependencies
+langgraph>=0.2
+langgraph-checkpoint-sqlite
+langchain>=0.3
+langchain-openai
+langchain-core
+pydantic>=2
+pydantic-settings
+fastapi
+uvicorn[standard]
+streamlit>=1.40
+slack-bolt>=1.20
+pytest
+pytest-asyncio
+httpx
+python-dotenv
+aiosqlite
+
+# Additional dependencies from source analysis
+python-json-logger
+tenacity
+websocket-client
+slack-sdk
+
+# Development dependencies
+black
+ruff
+mypy
+pre-commit

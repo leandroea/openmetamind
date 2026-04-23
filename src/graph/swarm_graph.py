@@ -11,7 +11,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Send
 import os
 
-from .state import SwarmState
+from ..models.state import SwarmState
 from .nodes import coordinator, planner, dispatcher, agent_executor_node, integrity_critic, action_executor_node
 
 

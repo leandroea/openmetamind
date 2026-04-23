@@ -11,6 +11,7 @@ from typing import List, Dict, Any, Optional, TypedDict, Annotated
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+from langchain_core.messages import BaseMessage
 import operator
 
 
@@ -94,7 +95,39 @@ class Conflict(BaseModel):
     severity: str = Field(default="warning", pattern="^(warning|critical)$")  # warning, critical
     resolution: Optional[str] = None  # How Integrity Critic resolved it
     resolved_at: Optional[datetime] = None
-    resolved_by: Optional[str] = None  # agent_id or "human"
+    resolved_by: Optional[str] = None # agent_id or "human"
+
+
+class CriticDecision(str, Enum):
+    """Decision made by the Integrity Critic."""
+    AUTO_APPROVE = "auto_approve"
+    ESCALATE_TO_HUMAN = "escalate_to_human"
+    REJECT_AND_RETRY = "reject_and_retry"
+
+
+class FindingAssessment(BaseModel):
+    """Assessment of a finding by the Integrity Critic."""
+    finding_id: str
+    validity_score: float = Field(ge=0.0, le=1.0)
+    assessment_reason: str = ""
+    is_consistent_with_others: bool = True
+    has_sufficient_evidence: bool = False
+    mcp_calls_verified: bool = False
+
+
+class CriticReview(BaseModel):
+    """Complete review result from the Integrity Critic."""
+    findings_reviewed: int
+    conflicts_detected: int
+    finding_assessments: List[FindingAssessment] = Field(default_factory=list)
+    decision: CriticDecision
+    reasoning: str = ""
+    conflicts_resolved: int = 0
+    conflicts_escalated: int = 0
+    approved_actions: List[ProposedAction] = Field(default_factory=list)
+    rejected_actions: List[ProposedAction] = Field(default_factory=list)
+    escalated_actions: List[ProposedAction] = Field(default_factory=list)
+    summary: str = ""
 
 
 class AgentStatus(str, Enum):

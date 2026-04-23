@@ -19,33 +19,62 @@ from .models import Entity, TableProfile, ColumnProfile, UsageStats
 logger = logging.getLogger(__name__)
 
 
+def get_mcp_client() -> "OpenMetadataMCPClient":
+    """
+    Dependency injection helper to get an MCP client instance.
+    
+    Reads configuration from settings (which loads from .env).
+    
+    Returns:
+        OpenMetadataMCPClient instance configured from settings
+        
+    Note:
+        This function does not handle the async context manager lifecycle.
+        For proper resource management, use the client as an async context manager:
+        async with get_mcp_client() as client:
+            # use client
+    """
+    from ..config import get_settings
+    settings = get_settings()
+    return OpenMetadataMCPClient(
+        base_url=settings.openmetadata_mcp_url,
+        jwt_token=settings.openmetadata_jwt_token
+    )
+
+
 class OpenMetadataMCPClient:
     """
     Async client for OpenMetadata MCP server.
-    
+
     Uses JSON-RPC 2.0 over HTTP with JWT Bearer authentication.
     """
 
     def __init__(
         self,
-        base_url: str = "http://localhost:8585/mcp",
+        base_url: Optional[str] = None,
         jwt_token: Optional[str] = None
     ):
         """
         Initialize the MCP client.
-        
+
         Args:
-            base_url: The MCP endpoint URL (default: http://localhost:8585/mcp)
-            jwt_token: JWT token for authentication. If not provided, 
-                      reads from OPENMETADATA_JWT_TOKEN environment variable.
+            base_url: The MCP endpoint URL. If not provided, reads from settings.
+            jwt_token: JWT token for authentication. If not provided, reads from settings.
         """
+        # Load from settings if not provided
+        if base_url is None or jwt_token is None:
+            from ..config import get_settings
+            settings = get_settings()
+            base_url = base_url or settings.openmetadata_mcp_url
+            jwt_token = jwt_token or settings.openmetadata_jwt_token
+        
         self.base_url = base_url
-        self.jwt_token = jwt_token or os.getenv("OPENMETADATA_JWT_TOKEN")
+        self.jwt_token = jwt_token
         if not self.jwt_token:
             raise ValueError(
                 "JWT token must be provided either as argument or via OPENMETADATA_JWT_TOKEN environment variable"
             )
-        
+
         self._client: Optional[httpx.AsyncClient] = None
         self._request_id = 0
 
@@ -274,19 +303,3 @@ class OpenMetadataMCPClient:
         """
         result = await self._call_mcp_tool("update_description", {"fqn": fqn, "description": description})
         return bool(result)
-
-
-def get_mcp_client() -> OpenMetadataMCPClient:
-    """
-    Dependency injection helper to get an MCP client instance.
-    
-    Returns:
-        OpenMetadataMCPClient instance configured from environment
-        
-    Note:
-        This function does not handle the async context manager lifecycle.
-        For proper resource management, use the client as an async context manager:
-        async with OpenMetadataMCPClient() as client:
-            # use client
-    """
-    return OpenMetadataMCPClient()

@@ -8,8 +8,8 @@ from datetime import datetime
 
 from src.graph.integrity_critic import IntegrityCritic
 from src.models.state import (
-    AgentFinding, Conflict, FindingType, ProposedAction, 
-    ActionType, CriticDecision, FindingAssessment
+    AgentFinding, Conflict, FindingType, ProposedAction,
+    ActionType, CriticDecision, FindingAssessment, MCPToolCall
 )
 
 
@@ -162,7 +162,7 @@ class TestIntegrityCritic:
             details={"table_count": 5},
             confidence=0.95,  # High confidence
             proposed_actions=[],
-            mcp_tool_calls=[MagicMock()],  # Has evidence
+        mcp_tool_calls=[MCPToolCall(tool_name="list_entities", parameters={}, success=True)], # Has evidence
             llm_reasoning="Direct MCP query"
         )
         
@@ -223,7 +223,7 @@ class TestIntegrityCritic:
             details={},
             confidence=0.9,
             proposed_actions=[],
-            mcp_tool_calls=[MagicMock(tool_name="list_entities", success=True)],
+            mcp_tool_calls=[MCPToolCall(tool_name="list_entities", parameters={}, success=True)],
             llm_reasoning="Based on MCP response"
         )
         

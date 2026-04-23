@@ -15,11 +15,14 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depe
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from .config import get_settings, setup_logging
 from .graph.swarm_graph import build_swarm_graph, get_swarm_graph
 from .graph.nodes import coordinator, planner, dispatcher, integrity_critic, action_executor_node
 from .agents.registry import AgentRegistry
 from .mcp.client import OpenMetadataMCPClient
 
+# Initialize logging from settings
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # Global variables for the app state
@@ -35,7 +38,11 @@ async def lifespan(app: FastAPI):
     """
     global swarm_graph, checkpointer
     
+    # Load settings
+    settings = get_settings()
     logger.info("Starting OpenMetaMind backend...")
+    logger.info(f"MCP URL: {settings.openmetadata_mcp_url}")
+    logger.info(f"LLM Model: {settings.llm_model}")
     
     # AgentRegistry auto-registers agents on import, so we just need to ensure
     # the agents are imported. We'll import the agents module to trigger registration.
@@ -122,13 +129,18 @@ def get_graph():
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint."""
+    settings = get_settings()
+    
     # Test MCP connection by trying to create a client (but not actually connecting)
     try:
         # We don't want to actually make a call in health check to avoid delays
         # Just check if the client can be instantiated
-        client = OpenMetadataMCPClient()
+        client = OpenMetadataMCPClient(
+            base_url=settings.openmetadata_mcp_url,
+            jwt_token=settings.openmetadata_jwt_token
+        )
         # We won't actually connect because that would require async context
-        mcp_status = "configured" if os.getenv("OPENMETADATA_JWT_TOKEN") else "missing credentials"
+        mcp_status = "configured"
     except Exception as e:
         mcp_status = f"error: {str(e)}"
     
@@ -140,9 +152,7 @@ async def health_check():
 
 @app.post("/api/swarm/run", response_model=SwarmResponse)
 async def run_swarm(query: SwarmQuery, graph=Depends(get_graph)):
-    """
-    Run a swarm query and return the results.
-    """
+    """Run a swarm query and return the results."""
     # Initialize SwarmState
     initial_state = {
         "user_query": query.query,
@@ -190,9 +200,7 @@ async def run_swarm(query: SwarmQuery, graph=Depends(get_graph)):
 
 @app.get("/api/swarm/status/{session_id}")
 async def get_swarm_status(session_id: str, graph=Depends(get_graph)):
-    """
-    Get the current state of a swarm session.
-    """
+    """Get the current state of a swarm session."""
     config = {"configurable": {"thread_id": session_id}}
     
     try:
@@ -210,9 +218,7 @@ async def get_swarm_status(session_id: str, graph=Depends(get_graph)):
 
 @app.get("/api/agents", response_model=List[AgentInfo])
 async def list_agents():
-    """
-    List all registered agents with their capabilities.
-    """
+    """List all registered agents with their capabilities."""
     registry = AgentRegistry()
     agents = registry.list_agents()
     
@@ -240,9 +246,7 @@ async def list_agents():
 
 @app.websocket("/ws/swarm/{session_id}")
 async def swarm_websocket(websocket: WebSocket, session_id: str, graph=Depends(get_graph)):
-    """
-    WebSocket endpoint for real-time swarm execution updates.
-    """
+    """WebSocket endpoint for real-time swarm execution updates."""
     await websocket.accept()
     
     try:
@@ -330,9 +334,7 @@ async def swarm_websocket(websocket: WebSocket, session_id: str, graph=Depends(g
 
 @app.post("/api/swarm/approve")
 async def approve_actions(request: ApproveRequest, graph=Depends(get_graph)):
-    """
-    Resume graph execution after human approval by updating state and re-invoking.
-    """
+    """Resume graph execution after human approval by updating state and re-invoking."""
     config = {"configurable": {"thread_id": request.session_id}}
     
     try:

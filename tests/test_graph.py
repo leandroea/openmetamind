@@ -25,9 +25,13 @@ class TestCoordinator:
     async def test_coordinator_classifies_delegate_task(self, coordinator, sample_swarm_state):
         """Test that coordinator routes delegation tasks to planner."""
         sample_swarm_state["user_input"] = "List tables in customers database"
-        
-        result = coordinator(sample_swarm_state)
-        
+
+        # Mock the intent chain to return a delegate intent
+        delegate_result = {"intent": "delegate_lightweight", "reasoning": "Test delegation"}
+        with patch.object(coordinator, 'intent_chain') as mock_chain:
+            mock_chain.invoke = MagicMock(return_value=delegate_result)
+            result = coordinator(sample_swarm_state)
+
         assert "next" in result
         assert result["next"] == "planner"
 
@@ -35,9 +39,13 @@ class TestCoordinator:
     async def test_coordinator_sets_delegated_task(self, coordinator, sample_swarm_state):
         """Test that coordinator sets delegated_task for planner."""
         sample_swarm_state["user_input"] = "Audit the customers database"
-        
-        result = coordinator(sample_swarm_state)
-        
+
+        # Mock the intent chain to return a delegate intent
+        delegate_result = {"intent": "delegate_full_swarm", "reasoning": "Complex task"}
+        with patch.object(coordinator, 'intent_chain') as mock_chain:
+            mock_chain.invoke = MagicMock(return_value=delegate_result)
+            result = coordinator(sample_swarm_state)
+
         assert "delegated_task" in result
         assert result["delegated_task"] == "Audit the customers database"
 
@@ -240,15 +248,19 @@ class TestGraphRouting:
         """Test that coordinator routes to planner for delegation tasks."""
         with patch('src.graph.coordinator.ChatOpenAI', return_value=mock_llm):
             coordinator = Coordinator()
-            
+
             state = {
                 "user_input": "List tables in customers database",
                 "conversation_history": [],
                 "user_query": "List tables in customers database"
             }
-            
-            result = coordinator(state)
-            
+
+            # Mock the intent chain to return a delegate intent
+            delegate_result = {"intent": "delegate_lightweight", "reasoning": "Test delegation"}
+            with patch.object(coordinator, 'intent_chain') as mock_chain:
+                mock_chain.invoke = MagicMock(return_value=delegate_result)
+                result = coordinator(state)
+
             assert result.get("next") == "planner"
 
     def test_planner_routes_to_dispatcher(self, mock_llm):

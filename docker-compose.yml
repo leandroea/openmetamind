@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # OpenMetaMind FastAPI Backend
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - ENV_FILE=/app/.env
+    env_file:
+      - .env
+    volumes:
+      - ./.env:/app/.env:ro
+    depends_on:
+      - postgres
+    networks:
+      - openmetamind-network
+    restart: unless-stopped
+
+  # Optional: PostgreSQL for production checkpointing
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: openmetamind
+      POSTGRES_USER: openmetamind
+      POSTGRES_PASSWORD: openmetamind_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - openmetamind-network
+    restart: unless-stopped
+
+  # Optional: Streamlit UI
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      - API_BASE_URL=http://app:8000
+    depends_on:
+      - app
+    networks:
+      - openmetamind-network
+    restart: unless-stopped
+
+networks:
+  openmetamind-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
