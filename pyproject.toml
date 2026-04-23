@@ -1,0 +1,33 @@
+[project]
+name = "openmetamind"
+version = "0.1.0"
+description = "Autonomous multi-agent swarm for OpenMetadata data governance"
+authors = [{name = "OpenMetaMind Team"}]
+dependencies = [
+    "langgraph>=0.2",
+    "langchain>=0.3",
+    "langchain-openai",
+    "pydantic>=2",
+    "pydantic-settings",
+    "fastapi",
+    "uvicorn[standard]",
+    "streamlit>=1.40",
+    "slack-bolt>=1.20",
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+    "python-dotenv",
+    "aiosqlite"
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "ruff",
+    "mypy",
+    "pre-commit"
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
