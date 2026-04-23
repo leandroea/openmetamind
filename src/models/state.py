@@ -11,6 +11,7 @@ from typing import List, Dict, Any, Optional, TypedDict, Annotated
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+from langchain_core.messages import BaseMessage
 import operator
 
 
@@ -125,8 +126,15 @@ SwarmState = TypedDict(
         "execution_plan": Optional[Dict[str, Any]],  # Will be ExecutionPlan model
         "completed_subtasks": List[str],
         "current_parallel_group": List[str],
-        "user_input": str,
+        "user_query": str,
+        "user_input": str,  # Keeping for backward compatibility
         "coordinator_notes": Optional[str],
+        "conversation_history": List[BaseMessage],
+        "delegated_task": Optional[str],
+        "coordinator_response": Optional[str],
+        "critic_review": Optional[Dict[str, Any]],
+        "approved_actions": List[Dict[str, Any]],
+        "execution_results": Optional[Dict[str, Any]],
         "executed_actions": List[str],  # List of action hashes that have been executed (for idempotency)
     },
 )
