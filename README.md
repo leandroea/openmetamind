@@ -33,11 +33,12 @@ Autonomous multi-agent swarm for OpenMetadata data governance using LangGraph.
    - `DATABASE_URL`: Connection string for the application's database (e.g., SQLite, PostgreSQL)
    - `SLACK_BOT_TOKEN`: Token for Slack bot (if using Slack integration)
    - `SLACK_SIGNING_SECRET`: Secret for Slack request verification
+   - `SLACK_APP_TOKEN`: App-level token for Socket Mode (if using Slack integration)
    - `LOG_LEVEL`: Logging level (e.g., INFO, DEBUG)
 
 5. Run the application:
+   - For FastAPI backend: `uvicorn src.main:app --reload`
    - For Streamlit UI: `streamlit run src/ui/streamlit_app.py`
-   - For FastAPI backend: `uvicorn src.ui.fastapi_app:app --reload`
    - For Slack bot: `python src/ui/slack_bot.py`
 
 ## Dependencies
