@@ -11,7 +11,6 @@ from typing import List, Dict, Any, Optional, TypedDict, Annotated
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
-from langchain_core.messages import BaseMessage
 import operator
 
 
