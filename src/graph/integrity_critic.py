@@ -42,9 +42,9 @@ class IntegrityCritic:
             raise ValueError("NVIDIA_API_KEY must be set in environment variables")
         
         self.llm = ChatOpenAI(
-            base_url="https://integrate.api.nvidia.com/v1",
+            base_url=os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
             api_key=nvidia_api_key,
-            model="minimax/minimax-m2.5",
+            model=os.getenv("LLM_MODEL", "meta/llama-3.3-70b-instruct"),
             temperature=0.1,
             max_tokens=1000
         )

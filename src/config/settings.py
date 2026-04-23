@@ -40,7 +40,7 @@ class Settings(BaseSettings):
         description="Base URL for NVIDIA API"
     )
     llm_model: str = Field(
-        default="minimax/minimax-m2.5",
+        default="meta/llama-3.3-70b-instruct",
         description="LLM model to use"
     )
     

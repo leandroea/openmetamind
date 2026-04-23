@@ -23,15 +23,14 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-
 class DataSteward(SwarmAgent):
     """Handles data classification, PII detection, tag assignment, and ownership management."""
-    
+
     agent_id = "data_steward"
     display_name = "Data Steward"
     description = "Handles data classification, PII detection, tag assignment, and ownership management"
     avatar_emoji = "🛡️"
-    
+
     capabilities = [
         Capability(
             name="pii_detection",
@@ -52,7 +51,7 @@ class DataSteward(SwarmAgent):
             output_schema={"proposed_owner": "string", "confidence": "float"}
         )
     ]
-    
+
     def __init__(self):
         """Initialize the Data Steward with NVIDIA LLM if available."""
         super().__init__()
@@ -67,9 +66,9 @@ class DataSteward(SwarmAgent):
                 else:
                     # Initialize ChatOpenAI with NVIDIA endpoint
                     self.llm = ChatOpenAI(
-                        base_url="https://integrate.api.nvidia.com/v1",
+                        base_url=os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
                         api_key=nvidia_api_key,
-                        model="minimax/minimax-m2.5",
+                        model=os.getenv("LLM_MODEL", "meta/llama-3.3-70b-instruct"),
                         temperature=0.1,
                         max_tokens=1000
                     )
@@ -77,7 +76,7 @@ class DataSteward(SwarmAgent):
             except Exception as e:
                 logger.warning(f"Failed to initialize NVIDIA LLM: {e}. Falling back to regex-only.")
                 self.llm = None
-    
+
     async def can_handle(self, task_description: str) -> float:
         """
         Determine if this agent can handle the task based on keywords.
@@ -88,51 +87,51 @@ class DataSteward(SwarmAgent):
             "owner", "ownership", "steward", "governance", "policy", "compliance",
             "detect", "identify", "label", "categorize"
         ]
-        
+
         score = 0.0
         for keyword in stewardship_keywords:
             if keyword in task_lower:
                 score += 0.15
-        
+
         # Cap the score at 1.0
         return min(score, 1.0)
-    
+
     async def execute(
-        self, 
-        task: str, 
-        inputs: Dict[str, Any], 
+        self,
+        task: str,
+        inputs: Dict[str, Any],
         mcp_client: Any = None
     ) -> AgentFinding:
         """
         Execute the data steward's classification logic.
-        
+
         Args:
             task: The specific task description for this agent
             inputs: Dictionary of input data from the blackboard
             mcp_client: MCP client for interacting with OpenMetadata
-            
+
         Returns:
             AgentFinding containing classification results and proposed actions
         """
         # Get MCP client if not provided
         if mcp_client is None:
             mcp_client = get_mcp_client()
-        
+
         # Determine what entity to work on from inputs or task
         entity_fqn = None
         if inputs and "entity_fqn" in inputs:
             entity_fqn = inputs["entity_fqn"]
         elif inputs and "table_fqn" in inputs:
             entity_fqn = inputs["table_fqn"]
-        
+
         # Extract entity FQN from task if not in inputs
         if not entity_fqn:
             # Simple regex to extract FQN-like patterns from task
-            fqn_pattern = r'[a-zA-Z0-9_.]+\\.[a-zA-Z0-9_.]+\\.[a-zA-Z0-9_.]+'
+            fqn_pattern = r'[a-zA-Z0-9_.]+\.[a-zA-Z0-9_.]+\.[a-zA-Z0-9_.]+'
             matches = re.findall(fqn_pattern, task)
             if matches:
                 entity_fqn = matches[0]
-        
+
         # If we still don't have an entity, we can't do much
         if not entity_fqn:
             finding = AgentFinding(
@@ -148,20 +147,20 @@ class DataSteward(SwarmAgent):
                 llm_reasoning="Cannot perform data stewardship without a target entity."
             )
             return finding
-        
+
         try:
             # Use the MCP client to get column profiles for the entity
             async with mcp_client as client:
                 # For now, we'll assume the entity is a table and get its profile
                 # In a full implementation, we'd need to determine entity type
                 table_profile = await client.get_table_profile(fqn=entity_fqn)
-                
+
                 # Perform PII detection on columns
                 pii_results = await self._detect_pii_in_columns(entity_fqn, client)
-                
+
                 # Generate proposed actions based on findings
                 proposed_actions = []
-                
+
                 # Add tag assignment actions for PII columns
                 if pii_results:
                     pii_column_names = [col["column_name"] for col in pii_results if col["is_pii"]]
@@ -172,18 +171,18 @@ class DataSteward(SwarmAgent):
                             entity_fqn=entity_fqn,
                             parameters={
                                 "tags": ["PII"],
-                                "column_names": pii_column_names  # Assuming MCP supports column-level tagging
+                                "column_names": pii_column_names # Assuming MCP supports column-level tagging
                             },
                             confidence=0.9,
                             proposed_by=self.agent_id
                         )
                         proposed_actions.append(action)
-                
+
                 # Create summary
                 pii_count = len([col for col in pii_results if col["is_pii"]]) if pii_results else 0
                 total_columns = len(pii_results) if pii_results else 0
                 summary = f"Data Steward analyzed {total_columns} columns, found {pii_count} with potential PII"
-                
+
                 # Create details
                 details = {
                     "entity_fqn": entity_fqn,
@@ -192,7 +191,7 @@ class DataSteward(SwarmAgent):
                     "pii_count": pii_count,
                     "total_columns": total_columns
                 }
-                
+
                 # Create finding
                 finding = AgentFinding(
                     agent_id=self.agent_id,
@@ -204,12 +203,12 @@ class DataSteward(SwarmAgent):
                     details=details,
                     confidence=0.85 if pii_results else 0.7,
                     proposed_actions=proposed_actions,
-                    mcp_tool_calls=[],  # Would be populated by MCP client internally
+                    mcp_tool_calls=[], # Would be populated by MCP client internally
                     llm_reasoning=f"The Data Steward analyzed table {entity_fqn} for PII using {'LLM-assisted' if self.llm else 'regex-based'} detection."
                 )
-                
+
                 return finding
-                
+
         except Exception as e:
             logger.error(f"Data Steward failed: {str(e)}")
             # Return a finding indicating failure
@@ -226,19 +225,19 @@ class DataSteward(SwarmAgent):
                 llm_reasoning=f"An error occurred while performing data stewardship: {str(e)}"
             )
             return finding
-    
+
     async def _detect_pii_in_columns(
-        self, 
-        table_fqn: str, 
+        self,
+        table_fqn: str,
         mcp_client: OpenMetadataMCPClient
     ) -> List[Dict[str, Any]]:
         """
         Detect PII in columns of a table using LLM-assisted analysis.
-        
+
         Args:
             table_fqn: Fully qualified name of the table
             mcp_client: Initialized MCP client
-            
+
         Returns:
             List of column analysis results
         """
@@ -247,7 +246,7 @@ class DataSteward(SwarmAgent):
         # 1. Get column profiles from MCP
         # 2. For each column, use LLM to analyze name, description, data type for PII indicators
         # 3. Return structured results
-        
+
         # Placeholder implementation
         return [
             {
@@ -267,7 +266,6 @@ class DataSteward(SwarmAgent):
                 "reasoning": "ID column, not directly PII but could be linkable"
             }
         ]
-
 
 # Self-register on import
 from .registry import AgentRegistry

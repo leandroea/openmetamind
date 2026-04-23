@@ -11,6 +11,9 @@ import os
 from contextlib import asynccontextmanager
 from typing import Dict, Any, List, Optional
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel

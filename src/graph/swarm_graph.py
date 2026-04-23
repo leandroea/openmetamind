@@ -7,7 +7,7 @@ with proper edges and routing logic.
 
 from typing import Literal
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Send
 import os
 
@@ -18,24 +18,16 @@ from .nodes import coordinator, planner, dispatcher, agent_executor_node, integr
 def build_swarm_graph(checkpointer=None):
     """
     Build the complete OpenMetaMind swarm LangGraph.
-    
+
     Args:
         checkpointer: Optional checkpointer for state persistence.
-                     If None, uses SqliteSaver with DATABASE_URL or default checkpoints.db
-        
+            If None, uses MemorySaver (in-memory checkpointing).
+
     Returns:
         Compiled StateGraph ready for execution
     """
     if checkpointer is None:
-        # Use DATABASE_URL from environment or default to checkpoints.db
-        db_path = os.getenv("DATABASE_URL", "checkpoints.db")
-        # Extract filename from DATABASE_URL if it's a SQLite URL
-        if db_path.startswith("sqlite:///"):
-            db_path = db_path[9:]  # Remove sqlite:/// prefix
-        elif db_path.startswith("sqlite://"):
-            db_path = db_path[8:]   # Remove sqlite:// prefix
-        
-        checkpointer = SqliteSaver.from_conn_string(db_path)
+        checkpointer = MemorySaver()
     
     # Create the graph
     workflow = StateGraph(SwarmState)
