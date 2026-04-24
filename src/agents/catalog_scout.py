@@ -165,10 +165,13 @@ class CatalogScout(SwarmAgent):
         database = None
         
         task_lower = task.lower()
-        if "database" in task_lower:
+        # Priority: explicit entity type in task > "table" > "database" > "schema"
+        if "table" in task_lower:
+            entity_type = "table"
+        elif "database" in task_lower:
             entity_type = "database"
         elif "schema" in task_lower:
-            entity_type = "database_service"  # or schema depending on OpenMetadata
+            entity_type = "database_service"  # OpenMetadata uses database_service for schemas
         
         # Extract database from inputs if available
         if inputs and "database" in inputs:
