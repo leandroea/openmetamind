@@ -156,7 +156,7 @@ class Planner:
         self.decomposition_prompt = ChatPromptTemplate.from_template(
             """Decompose this task into subtasks. Output ONLY valid JSON in this exact format:
 
-{"subtasks": [{"subtask_id": "...", "agent_id": "...", "task_description": "...", "required_inputs": [], "produces_output": "...", "dependencies": [], "max_retries": 2, "timeout_seconds": 60}]}
+{subtask_format}
 
 No markdown, no explanation, no thinking tags.
 
@@ -200,10 +200,12 @@ Examples:
         logger.info(f"Planner: Invoking decomposition chain for task: {delegated_task[:50]}...")
         
         # Decompose task into subtasks
+        subtask_format = '{"subtasks": [{"subtask_id": "...", "agent_id": "...", "task_description": "...", "required_inputs": [], "produces_output": "...", "dependencies": [], "max_retries": 2, "timeout_seconds": 60}]}'
         try:
             plan_result = self.decomposition_chain.invoke({
                 "user_request": delegated_task,
-                "agent_capabilities": agent_capabilities_str
+                "agent_capabilities": agent_capabilities_str,
+                "subtask_format": subtask_format
             })
             
             logger.info(f"Planner: Decomposition successful, got {len(plan_result.get('subtasks', []))} subtasks")
