@@ -183,6 +183,12 @@ class DocumentationAgent(SwarmAgent):
                 
                 entities = search_result.get("results", [])
                 
+                logger.info(f"Search returned {len(entities)} entities")
+                for entity in entities[:5]:
+                    name = entity.get("fullyQualifiedName", entity.get("name", "UNKNOWN"))
+                    desc = entity.get("description", "FIELD_MISSING")
+                    logger.info(f"Entity: {name} | Description: '{desc}' | Missing: {self._is_missing_description(desc, name)}")
+                
                 for entity in entities:
                     name = entity.get("fullyQualifiedName", entity.get("name", ""))
                     description = entity.get("description", "")
