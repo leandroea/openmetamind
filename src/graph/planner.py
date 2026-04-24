@@ -149,7 +149,7 @@ class Planner:
         
         # Prepare state updates
         updates = {
-            "execution_plan": execution_plan.dict() if hasattr(execution_plan, 'dict') else execution_plan,
+            "execution_plan": execution_plan.model_dump() if hasattr(execution_plan, 'model_dump') else execution_plan,
             "completed_subtasks": [],  # Reset completed subtasks
             "current_parallel_group": []  # Will be set by dispatcher
         }

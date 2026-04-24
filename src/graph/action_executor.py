@@ -55,7 +55,7 @@ class ActionExecutor:
             if action_hash in executed_actions:
                 logger.info(f"Skipping already executed action: {action.action_type} on {action.entity_fqn}")
                 results.append({
-                    "action": action.dict() if hasattr(action, 'dict') else action,
+                    "action": action.model_dump() if hasattr(action, 'model_dump') else action,
                     "success": True,
                     "result": {"message": "Already executed (idempotency skip)"},
                     "skipped": True
@@ -66,7 +66,7 @@ class ActionExecutor:
             if action_hash in newly_executed:
                 logger.info(f"Skipping duplicate action in batch: {action.action_type} on {action.entity_fqn}")
                 results.append({
-                    "action": action.dict() if hasattr(action, 'dict') else action,
+                    "action": action.model_dump() if hasattr(action, 'model_dump') else action,
                     "success": True,
                     "result": {"message": "Already executed in this batch (idempotency skip)"},
                     "skipped": True
@@ -84,7 +84,7 @@ class ActionExecutor:
                     result = await self._execute_mcp(action)
                 
                 results.append({
-                    "action": action.dict() if hasattr(action, 'dict') else action,
+                    "action": action.model_dump() if hasattr(action, 'model_dump') else action,
                     "success": True,
                     "result": result
                 })
@@ -98,7 +98,7 @@ class ActionExecutor:
             except Exception as e:
                 logger.error(f"Action execution failed: {action.action_type} on {action.entity_fqn}: {str(e)}")
                 results.append({
-                    "action": action.dict() if hasattr(action, 'dict') else action,
+                    "action": action.model_dump() if hasattr(action, 'model_dump') else action,
                     "success": False,
                     "error": str(e)
                 })

@@ -139,7 +139,7 @@ class IntegrityCritic:
             )
             
             return {
-                "critic_review": critic_review.dict(),
+                "critic_review": critic_review.model_dump(),
                 "next": "human_gate"
             }
         
@@ -267,7 +267,7 @@ class IntegrityCritic:
         # Prepare state updates
         # Note: findings and agent_statuses are at top level with operator.add
         updates = {
-            "critic_review": critic_review.dict(),
+            "critic_review": critic_review.model_dump(),
             "blackboard": {
                 # Only keep conflicts in blackboard - other fields are at top level
                 "conflicts": updated_conflicts,  # Add new conflicts
@@ -278,6 +278,6 @@ class IntegrityCritic:
         
         # If we have approved actions, add them to state for action executor
         if critic_review.approved_actions:
-            updates["approved_actions"] = [action.dict() for action in critic_review.approved_actions]
+            updates["approved_actions"] = [action.model_dump() for action in critic_review.approved_actions]
         
         return updates

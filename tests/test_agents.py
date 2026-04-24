@@ -87,7 +87,7 @@ class TestDataSteward:
         """Test that execute with real MCP client returns a valid AgentFinding."""
         async with real_mcp_client as client:
             # Get a real table from OpenMetadata first
-            result = await client.search_metadata(query="table", entityType="table", size=1)
+            result = await client.search_metadata(query="table", entity_type="table", size=1)
             
             if result and result.get("results"):
                 first_table = result["results"][0]
@@ -146,7 +146,7 @@ class TestQualityGuardian:
         """Test that execute with real MCP client returns a valid AgentFinding."""
         async with real_mcp_client as client:
             # Get a real table from OpenMetadata first
-            result = await client.search_metadata(query="table", entityType="table", size=1)
+            result = await client.search_metadata(query="table", entity_type="table", size=1)
             
             if result and result.get("results"):
                 first_table = result["results"][0]

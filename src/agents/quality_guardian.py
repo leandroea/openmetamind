@@ -151,9 +151,9 @@ class QualityGuardian(SwarmAgent):
                 # Create details
                 details = {
                     "table_fqn": table_fqn,
-                    "table_profile": table_profile.dict() if hasattr(table_profile, 'dict') else table_profile,
+                    "table_profile": table_profile.model_dump() if hasattr(table_profile, 'model_dump') else table_profile,
                     "quality_metrics": quality_metrics,
-                    "anomalies": [anomaly.dict() if hasattr(anomaly, 'dict') else anomaly for anomaly in anomalies],
+                    "anomalies": [anomaly.model_dump() if hasattr(anomaly, 'model_dump') else anomaly for anomaly in anomalies],
                     "quality_score": quality_score
                 }
                 
@@ -196,15 +196,19 @@ class QualityGuardian(SwarmAgent):
         Calculate quality metrics from table profile.
         
         Args:
-            table_profile: TableProfile object from MCP
+            table_profile: TableProfile object or dict from MCP
             
         Returns:
             Dictionary of quality metrics
         """
-        # Extract metrics from table profile
+        # Extract metrics from table profile (could be dict or object)
         # This is a simplified implementation - in reality, we'd have more detailed profile data
-        row_count = getattr(table_profile, 'rowCount', None) or getattr(table_profile, 'row_count', None)
-        column_count = getattr(table_profile, 'columnCount', None) or getattr(table_profile, 'column_count', None)
+        if isinstance(table_profile, dict):
+            row_count = table_profile.get('rowCount') or table_profile.get('row_count')
+            column_count = table_profile.get('columnCount') or table_profile.get('column_count')
+        else:
+            row_count = getattr(table_profile, 'rowCount', None) or getattr(table_profile, 'row_count', None)
+            column_count = getattr(table_profile, 'columnCount', None) or getattr(table_profile, 'column_count', None)
         
         # For this scaffold, we'll return placeholder metrics
         # In a full implementation, we'd calculate actual quality scores

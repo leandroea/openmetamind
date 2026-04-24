@@ -186,7 +186,7 @@ class DataSteward(SwarmAgent):
                 # Create details
                 details = {
                     "entity_fqn": entity_fqn,
-                    "table_profile": table_profile.dict() if hasattr(table_profile, 'dict') else table_profile,
+                    "table_profile": table_profile.model_dump() if hasattr(table_profile, 'model_dump') else table_profile,
                     "column_analysis": pii_results,
                     "pii_count": pii_count,
                     "total_columns": total_columns

@@ -73,7 +73,7 @@ class AgentExecutor:
                 llm_reasoning="Agent not found in registry"
             )
             return {
-                "findings": [error_finding.dict() if hasattr(error_finding, 'dict') else error_finding],
+                "findings": [error_finding.model_dump() if hasattr(error_finding, 'model_dump') else error_finding],
                 "agent_statuses": {agent_id: "failed"} if agent_id else {},
                 "completed_subtasks": [subtask_id] if subtask_id else []  # Mark as completed even if failed
             }
@@ -90,7 +90,7 @@ class AgentExecutor:
                 
                 # Return the finding to be added to blackboard and mark agent as completed
                 return {
-                    "findings": [finding.dict() if hasattr(finding, 'dict') else finding],
+                    "findings": [finding.model_dump() if hasattr(finding, 'model_dump') else finding],
                     "agent_statuses": {agent_id: "completed"},
                     "completed_subtasks": [subtask_id]  # Mark this subtask as completed
                 }
@@ -112,7 +112,7 @@ class AgentExecutor:
                 llm_reasoning=f"Agent {agent_id} failed during execution: {str(e)}"
             )
             return {
-                "findings": [error_finding.dict() if hasattr(error_finding, 'dict') else error_finding],
+                "findings": [error_finding.model_dump() if hasattr(error_finding, 'model_dump') else error_finding],
                 "agent_statuses": {agent_id: "failed"},
                 "completed_subtasks": [subtask_id]  # Mark as completed even if failed
             }
