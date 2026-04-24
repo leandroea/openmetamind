@@ -194,16 +194,25 @@ class CatalogScout(SwarmAgent):
                 entities = search_result.get("results", [])
                 total_count = search_result.get("totalFound", len(entities))
                 
-                # Create summary
-                summary = f"Found {total_count} {entity_type}(s) in the catalog"
-                
                 # Deduplicate entities by FQN before building details
-                # Some search results may contain the same entity multiple times
-                entities_by_fqn = {}
-                for entity in entities:
-                    fqn = entity.get("fullyQualifiedName") or entity.get("name") or ""
-                    if fqn and fqn not in entities_by_fqn:
-                        entities_by_fqn[fqn] = entity
+                # Some search results may contain the same entity multiple times across pages
+                unique_by_fqn = {}
+                for hit in entities:
+                    # Extract FQN from hit, checking multiple possible field paths
+                    fqn = (
+                        hit.get("fullyQualifiedName") or
+                        hit.get("_source", {}).get("fullyQualifiedName") or
+                        hit.get("name") or
+                        hit.get("_source", {}).get("name") or
+                        ""
+                    )
+                    if fqn and fqn not in unique_by_fqn:
+                        unique_by_fqn[fqn] = hit
+                
+                unique_entities = list(unique_by_fqn.values())
+                
+                # Create summary - use actual unique count
+                summary = f"Found {len(unique_entities)} unique {entity_type}(s) in the catalog"
                 
                 # Create details - include all unique entities, not just first 10
                 details = {
@@ -217,10 +226,10 @@ class CatalogScout(SwarmAgent):
                             "service": entity.get("service", {}).get("displayName") if isinstance(entity.get("service"), dict) else None,
                             "database": entity.get("database", {}).get("displayName") if isinstance(entity.get("database"), dict) else None
                         }
-                        for entity in entities_by_fqn.values()
+                        for entity in unique_entities
                     ],
                     "total_count": total_count,
-                    "returned_count": len(entities_by_fqn),
+                    "returned_count": len(unique_entities),
                     "deduplicated": True
                 }
                 
