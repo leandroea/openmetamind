@@ -189,7 +189,9 @@ async def run_swarm(query: SwarmQuery, graph=Depends(get_graph)):
         
         # Create a summary of the blackboard
         blackboard_summary = {
+            "findings": findings,  # Include actual findings for UI display
             "findings_count": len(findings),
+            "conflicts": blackboard.get("conflicts", []) if isinstance(blackboard, dict) else [],
             "conflicts_count": len(blackboard.get("conflicts", [])) if isinstance(blackboard, dict) else 0,
             "agent_statuses": agent_statuses,
             "execution_phase": blackboard.get("execution_phase", "unknown") if isinstance(blackboard, dict) else "unknown"

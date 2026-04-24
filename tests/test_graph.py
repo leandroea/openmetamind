@@ -9,6 +9,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from src.graph.coordinator import Coordinator
 from src.graph.planner import Planner
 from src.graph.dispatcher import Dispatcher
+from src.graph.supervisor import Supervisor
 from src.graph.swarm_graph import build_swarm_graph
 from src.models.state import SwarmState
 
@@ -109,68 +110,25 @@ class TestPlanner:
 
 
 class TestDispatcher:
-    """Tests for the Dispatcher node."""
+    """Tests for the Dispatcher node with Supervisor pattern."""
 
     @pytest.fixture
     def dispatcher(self):
         return Dispatcher()
 
     def test_dispatcher_returns_empty_for_no_plan(self, dispatcher, sample_swarm_state):
-        """Test that dispatcher returns empty for no plan."""
-        from src.graph.dispatcher import dispatcher_conditional_edge
-        
+        """Test that dispatcher routes to integrity_critic when no plan."""
         sample_swarm_state["execution_plan"] = None
         
-        # Test dispatcher node returns simple dict
         result = dispatcher(sample_swarm_state)
-        assert result == {"dispatcher_ran": True}
         
-        # Test conditional edge routes to integrity_critic when no plan
-        routing = dispatcher_conditional_edge(sample_swarm_state)
-        assert routing == "integrity_critic"
+        # Should route directly to integrity_critic
+        assert result["next"] == "integrity_critic"
+        assert "pending_tasks" not in result
 
-    def test_dispatcher_returns_sends_for_ready_subtasks(self, dispatcher, sample_swarm_state):
-        """Test that dispatcher returns Command with Send objects for ready subtasks."""
+    def test_dispatcher_initializes_task_queue(self, dispatcher, sample_swarm_state):
+        """Test that dispatcher initializes pending_tasks for Supervisor."""
         from src.models.plan import Subtask, ExecutionPlan
-        from src.graph.dispatcher import dispatcher_conditional_edge
-        
-        sample_swarm_state["execution_plan"] = ExecutionPlan(
-            subtasks=[
-                Subtask(
-                    subtask_id="task1",
-                    agent_id="catalog_scout",
-                    task_description="List tables",
-                    required_inputs=[],
-                    produces_output="tables",
-                    dependencies=[]
-                )
-            ],
-            estimated_duration="30s",
-            parallel_groups=[["task1"]]
-        )
-        sample_swarm_state["completed_subtasks"] = []
-        sample_swarm_state["blackboard"] = {"findings": [], "conflicts": [], "agent_statuses": {}, "execution_phase": "executing"}
-        
-        # Test dispatcher node returns simple dict
-        result = dispatcher(sample_swarm_state)
-        assert result == {"dispatcher_ran": True}
-        
-        # Test conditional edge returns sends
-        routing = dispatcher_conditional_edge(sample_swarm_state)
-        assert isinstance(routing, list)
-        assert len(routing) > 0
-        # Check that Send objects have correct structure
-        for send in routing:
-            assert hasattr(send, 'node')
-            assert send.node == "agent_executor"
-            assert hasattr(send, 'arg')
-            assert "subtask_id" in send.arg
-            assert "agent_id" in send.arg
-
-    def test_dispatcher_respects_dependencies(self, dispatcher, sample_swarm_state):
-        """Test that dispatcher only sends tasks with satisfied dependencies."""
-        from src.models.plan import Subtask, ExecutionPlan
-        from src.graph.dispatcher import dispatcher_conditional_edge
         
         sample_swarm_state["execution_plan"] = ExecutionPlan(
             subtasks=[
@@ -191,22 +149,24 @@ class TestDispatcher:
                     dependencies=["task1"]
                 )
             ],
-            estimated_duration="60s",
+            estimated_duration="30s",
             parallel_groups=[["task1"], ["task2"]]
         )
-        sample_swarm_state["completed_subtasks"] = []  # No tasks completed yet
-        sample_swarm_state["blackboard"] = {"findings": [], "conflicts": [], "agent_statuses": {}, "execution_phase": "executing"}
         
-        routing = dispatcher_conditional_edge(sample_swarm_state)
-        # Only task1 should be ready (no dependencies)
-        assert isinstance(routing, list)
-        assert len(routing) == 1
-        assert routing[0].arg["subtask_id"] == "task1"
+        result = dispatcher(sample_swarm_state)
+        
+        # Should initialize task queue and route to supervisor
+        assert result["next"] == "supervisor"
+        assert "pending_tasks" in result
+        assert len(result["pending_tasks"]) == 2
+        assert result["current_task_index"] == 0
+        
+        # First task should be task1
+        assert result["pending_tasks"][0]["subtask_id"] == "task1"
 
-    def test_dispatcher_skips_completed_tasks(self, dispatcher, sample_swarm_state):
-        """Test that dispatcher skips already completed tasks."""
+    def test_dispatcher_routes_to_supervisor(self, dispatcher, sample_swarm_state):
+        """Test that dispatcher always routes to supervisor when tasks exist."""
         from src.models.plan import Subtask, ExecutionPlan
-        from src.graph.dispatcher import dispatcher_conditional_edge
         
         sample_swarm_state["execution_plan"] = ExecutionPlan(
             subtasks=[
@@ -222,12 +182,91 @@ class TestDispatcher:
             estimated_duration="30s",
             parallel_groups=[["task1"]]
         )
-        sample_swarm_state["completed_subtasks"] = ["task1"]  # Already completed
-        sample_swarm_state["blackboard"] = {"findings": [], "conflicts": [], "agent_statuses": {}, "execution_phase": "executing"}
         
-        routing = dispatcher_conditional_edge(sample_swarm_state)
-        # task1 should be skipped - routing should go to integrity_critic
-        assert routing == "integrity_critic"
+        result = dispatcher(sample_swarm_state)
+        
+        assert result["next"] == "supervisor"
+
+
+class TestSupervisor:
+    """Tests for the Supervisor node."""
+
+    @pytest.fixture
+    def supervisor(self):
+        return Supervisor()
+
+    def test_supervisor_moves_to_critic_when_no_tasks(self, supervisor, sample_swarm_state):
+        """Test that supervisor routes to integrity_critic when no pending tasks."""
+        sample_swarm_state["pending_tasks"] = []
+        
+        result = supervisor(sample_swarm_state)
+        
+        assert result["next"] == "integrity_critic"
+
+    def test_supisor_executes_single_task(self, supervisor, sample_swarm_state):
+        """Test that supervisor executes a single task and moves to critic."""
+        sample_swarm_state["pending_tasks"] = [
+            {
+                "subtask_id": "task1",
+                "agent_id": "catalog_scout",
+                "task": "List tables",
+                "required_inputs": [],
+                "dependencies": [],
+                "produces_output": "tables"
+            }
+        ]
+        sample_swarm_state["findings"] = []
+        sample_swarm_state["completed_subtasks"] = []
+        
+        # Mock the agent execution
+        mock_finding = MagicMock()
+        mock_finding.confidence = 0.95
+        mock_finding.dict.return_value = {"finding": "data"}
+        
+        with patch.object(supervisor, '_execute_agent_sync', return_value=mock_finding):
+            result = supervisor(sample_swarm_state)
+        
+        # Should route to integrity_critic (no more tasks)
+        assert result["next"] == "integrity_critic"
+        assert len(result["findings"]) == 1
+        assert "task1" in result["completed_subtasks"]
+
+    def test_supervisor_loops_for_multiple_tasks(self, supervisor, sample_swarm_state):
+        """Test that supervisor loops back when more tasks remain."""
+        sample_swarm_state["pending_tasks"] = [
+            {
+                "subtask_id": "task1",
+                "agent_id": "catalog_scout",
+                "task": "List tables",
+                "required_inputs": [],
+                "dependencies": [],
+                "produces_output": "tables"
+            },
+            {
+                "subtask_id": "task2",
+                "agent_id": "data_steward",
+                "task": "Analyze tables",
+                "required_inputs": [],
+                "dependencies": [],
+                "produces_output": "analysis"
+            }
+        ]
+        sample_swarm_state["findings"] = []
+        sample_swarm_state["completed_subtasks"] = []
+        
+        # Mock the agent execution
+        mock_finding = MagicMock()
+        mock_finding.confidence = 0.95
+        mock_finding.dict.return_value = {"finding": "data"}
+        
+        with patch.object(supervisor, '_execute_agent_sync', return_value=mock_finding):
+            result = supervisor(sample_swarm_state)
+        
+        # Should loop back to supervisor for next task
+        assert result["next"] == "supervisor"
+        assert len(result["findings"]) == 1
+        assert "task1" in result["completed_subtasks"]
+        assert len(result["pending_tasks"]) == 1  # task2 remains
 
 
 class TestSwarmGraph:
