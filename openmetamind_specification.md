@@ -684,13 +684,12 @@ The Integrity Critic verified this finding against:
 | Agent | ID | Role | Key Capabilities |
 |-------|-----|------|------------------|
 | Catalog Scout | `catalog_scout` | Discovery | `list_entities`, `search_catalog`, `get_entity_details` |
-| Data Steward | `data_steward` | Classification | `detect_pii`, `assign_tags`, `manage_ownership` |
+| Data Steward | `data_steward` | Classification | `pii_detection`, `tag_assignment`, `ownership_management` |
 | Quality Guardian | `quality_guardian` | Data Quality | `profile_table`, `detect_anomalies`, `validate_sla` |
-| Policy Enforcer | `policy_enforcer` | Compliance | `check_policy`, `validate_access`, `flag_violations` |
-| Impact Analyst | `impact_analyst` | Lineage | `trace_lineage`, `map_dependencies`, `assess_change_impact` |
-| Documentation Expert | `doc_expert` | Metadata | `generate_descriptions`, `create_readme`, `suggest_glossary_terms` |
-| Integrity Critic | `integrity_critic` | Validation | `validate_findings`, `detect_conflicts`, `assign_confidence` |
-| Action Executor | `action_executor` | Execution | `execute_mcp_write`, `batch_operations`, `rollback` |
+| Documentation Agent | `documentation_agent` | Metadata | `find_undocumented`, `generate_description`, `document_entities` |
+| Example Agent | `example_agent` | Demo | `example_task` |
+
+**Note:** Integrity Critic and Action Executor are graph nodes, not agents. Policy Enforcer, Impact Analyst, and other agents in this table are planned but not yet implemented.
 
 ### 5.2 Example: Adding a New Agent
 

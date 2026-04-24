@@ -131,8 +131,19 @@ The following issues were discovered and fixed during the testing process:
 
 11. **Coordinator clarification issue** — Updated `intent_prompt` to properly classify OpenMetadata queries as `delegate_lightweight` instead of `clarify`
 
----
-## Architecture Notes
+12. **Entity type detection** in [`src/agents/catalog_scout.py`](src/agents/catalog_scout.py:167) — Fixed priority so explicit "table" keyword takes precedence over "database" and "schema"
+
+13. **Invalid FindingType enum** in [`src/agents/documentation_agent.py`](src/agents/documentation_agent.py:322) — Changed `finding_type="documentation"` to `finding_type="description"` to match the `FindingType` enum
+
+14. **Snake_case entity name detection** in [`src/agents/catalog_scout.py`](src/agents/catalog_scout.py:107) — Added detection of entity names with 2+ underscores (e.g., `big_data_table_with_nested_columns`) before falling back to generic terms
+
+15. **Search query context** in [`src/agents/documentation_agent.py`](src/agents/documentation_agent.py:298) — Now extracts table/database names from task description and inputs instead of using generic `"default"` query
+
+16. **Placeholder description detection** in [`src/agents/documentation_agent.py`](src/agents/documentation_agent.py:117) — Added checks for placeholder strings ("No description", "N/A", "null", etc.) and entity name repetition
+
+17. **Planner prompt f-string validation** in [`src/graph/planner.py`](src/graph/planner.py:154) — Extracted JSON format to `subtask_format` variable to avoid nested brace error in LangChain template
+
+18. **Simplified planner prompt** in [`src/graph/planner.py`](src/graph/planner.py:154) — Removed verbose explanations, reduced agent descriptions to one-liners, added explicit "no thinking tags" instruction
 
 **Supervisor/Manager Pattern:** Agents execute sequentially via the Supervisor node, not in parallel. This eliminates concurrent state update conflicts and simplifies debugging.
 

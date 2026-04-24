@@ -77,6 +77,14 @@ The OpenMetaMind swarm follows a sequential Supervisor/Manager pattern:
 5. **Integrity Critic** - Validates findings, detects conflicts, decides routing (retry or approve)
 6. **Action Executor** - Performs MCP write operations (only component with write permissions)
 
+**Available Agents:**
+
+- `catalog_scout` — Discovers and lists entities in the OpenMetadata catalog
+- `data_steward` — Handles data classification, PII detection, tag assignment, and ownership management
+- `quality_guardian` — Profiles tables, detects anomalies, and validates SLAs
+- `documentation_agent` — Finds undocumented entities and generates business-friendly descriptions
+- `example_agent` — Example agent demonstrating the SwarmAgent interface
+
 **Execution Model:** Agents execute sequentially via the Supervisor/Manager pattern, not in parallel. 
 The Streamlit UI calls the swarm directly via `SwarmRunner` without going through an HTTP API.
 This simplifies deployment, removes network overhead, and eliminates concurrent state update conflicts.
