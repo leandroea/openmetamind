@@ -187,6 +187,31 @@ async def run_swarm(query: SwarmQuery, graph=Depends(get_graph)):
         approved_actions = final_state.get("approved_actions", [])
         execution_results = final_state.get("action_results")
         
+        # If coordinator_response is None but we have findings, generate a summary
+        if coordinator_response is None and findings:
+            # Build a response from findings
+            if isinstance(findings, list) and len(findings) > 0:
+                summary_parts = []
+                for f in findings[:5]:  # Limit to first 5 findings
+                    if isinstance(f, dict):
+                        summary = f.get("summary", "")
+                        if summary:
+                            summary_parts.append(summary)
+                    else:
+                        summary = getattr(f, 'summary', '')
+                        if summary:
+                            summary_parts.append(summary)
+                
+                if summary_parts:
+                    coordinator_response = "I found the following information:\n\n" + "\n".join(f"- {s}" for s in summary_parts)
+                    if len(findings) > 5:
+                        coordinator_response += f"\n\n...and {len(findings) - 5} more findings."
+                else:
+                    # Even if no summary, still generate a response
+                    coordinator_response = f"The swarm completed analysis with {len(findings)} finding(s). Check the findings panel for details."
+            else:
+                coordinator_response = "The swarm has completed its analysis."
+        
         # Create a summary of the blackboard
         blackboard_summary = {
             "findings": findings,  # Include actual findings for UI display

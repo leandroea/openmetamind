@@ -37,9 +37,9 @@ Autonomous multi-agent swarm for OpenMetadata data governance using LangGraph.
    - `LOG_LEVEL`: Logging level (e.g., INFO, DEBUG)
 
 5. Run the application:
-   - For FastAPI backend: `uvicorn src.main:app --reload`
-   - For Streamlit UI: `streamlit run src/ui/streamlit_app.py`
-   - For Slack bot: `python src/ui/slack_bot.py`
+   - For Streamlit UI (main interface): `streamlit run src/ui/streamlit_app.py`
+   - FastAPI backend is no longer required - Streamlit calls the swarm directly
+   - For Slack bot: `python src/ui/slack_bot.py` (requires FastAPI backend)
 
 ## Dependencies
 
@@ -72,10 +72,14 @@ The OpenMetaMind swarm follows this flow:
 
 1. **Coordinator** - User's single point of contact, classifies intent
 2. **Planner** - Decomposes tasks, selects agents, creates execution plan
-3. **Dispatcher** - Spawns agents in parallel using LangGraph Send API
-4. **Agent Executors** - Execute tasks using real MCP calls to OpenMetadata
+3. **Dispatcher** - Initializes task queue for Supervisor
+4. **Supervisor** - Executes agents sequentially (Supervisor/Manager pattern)
 5. **Integrity Critic** - Validates findings, detects conflicts, makes routing decisions
 6. **Action Executor** - Performs MCP write operations (only component with write permissions)
+
+**Note:** With the Supervisor/Manager pattern, agents execute sequentially (not in parallel). 
+Therefore, the Streamlit UI calls the swarm directly without going through an HTTP API.
+This simplifies deployment and removes unnecessary network overhead.
 
 ## License
 

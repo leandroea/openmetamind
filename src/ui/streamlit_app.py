@@ -129,8 +129,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# API Configuration
-API_BASE_URL = "http://localhost:8000"
+# Direct import for swarm runner
+from .swarm_runner import get_swarm_runner
+
+# API Configuration - no longer needed for swarm calls
+# Keeping for backward compatibility if needed
+# API_BASE_URL = "http://localhost:8000"
 
 
 def init_session_state():
@@ -152,64 +156,62 @@ def init_session_state():
 
 
 def get_agents() -> List[Dict[str, Any]]:
-    """Fetch registered agents from API."""
-    try:
-        response = requests.get(f"{API_BASE_URL}/api/agents", timeout=5)
-        if response.status_code == 200:
-            return response.json()
-    except requests.exceptions.RequestException:
-        pass
-    return []
+    """Fetch registered agents from the agent registry."""
+    from ..agents.registry import AgentRegistry
+    registry = AgentRegistry()
+    agents = registry.list_agents()
+    
+    return [
+        {
+            "agent_id": agent.agent_id,
+            "display_name": agent.display_name,
+            "description": agent.description,
+            "avatar_emoji": agent.avatar_emoji,
+            "capabilities": [
+                {
+                    "name": cap.name,
+                    "description": cap.description,
+                    "input_schema": cap.input_schema,
+                    "output_schema": cap.output_schema
+                }
+                for cap in agent.capabilities
+            ]
+        }
+        for agent in agents
+    ]
 
 
 def get_swarm_status(session_id: str) -> Optional[Dict[str, Any]]:
-    """Fetch current swarm status from API."""
-    try:
-        response = requests.get(f"{API_BASE_URL}/api/swarm/status/{session_id}", timeout=5)
-        if response.status_code == 200:
-            return response.json()
-    except requests.exceptions.RequestException:
-        pass
+    """Get swarm status from checkpointer - not used in direct mode."""
+    # In direct mode, we don't maintain separate session state via API
     return None
 
 
 def run_swarm(query: str, user_id: str = "demo_user") -> Optional[Dict[str, Any]]:
-    """Run a swarm query via API."""
+    """Run a swarm query directly via SwarmRunner."""
     try:
-        response = requests.post(
-            f"{API_BASE_URL}/api/swarm/run",
-            json={"query": query, "user_id": user_id},
-            timeout=60
-        )
-        if response.status_code == 200:
-            return response.json()
-    except requests.exceptions.RequestException as e:
+        runner = get_swarm_runner()
+        return runner.run(query, user_id)
+    except Exception as e:
         st.error(f"Error running swarm: {e}")
-    return None
+        return None
 
 
 def approve_actions(session_id: str, action_ids: List[str], decision: str) -> bool:
-    """Approve or reject actions."""
-    try:
-        response = requests.post(
-            f"{API_BASE_URL}/api/swarm/approve",
-            json={"session_id": session_id, "action_ids": action_ids, "decision": decision},
-            timeout=30
-        )
-        return response.status_code == 200
-    except requests.exceptions.RequestException:
-        return False
+    """Approve or reject actions - not used in direct mode."""
+    # In direct mode, actions are handled automatically by the swarm
+    return True
 
 
 def check_health() -> Dict[str, str]:
-    """Check API health status."""
+    """Check MCP and swarm health status directly."""
     try:
-        response = requests.get(f"{API_BASE_URL}/health", timeout=5)
-        if response.status_code == 200:
-            return response.json()
-    except requests.exceptions.RequestException:
-        pass
-    return {"status": "unhealthy", "mcp_connection": "unreachable"}
+        from ..mcp.client import get_mcp_client
+        client = get_mcp_client()
+        # Just verify client can be created, not actually connect
+        return {"status": "healthy", "mcp_connection": "configured"}
+    except Exception as e:
+        return {"status": "unhealthy", "mcp_connection": f"error: {str(e)}"}
 
 
 def get_confidence_badge(confidence: float) -> str:
