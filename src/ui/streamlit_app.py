@@ -15,6 +15,10 @@ from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 load_dotenv()
 
+# Initialize logging
+from src.config import setup_logging
+setup_logging()
+
 import websocket
 import threading
 
