@@ -195,7 +195,15 @@ class CatalogScout(SwarmAgent):
                 # Create summary
                 summary = f"Found {total_count} {entity_type}(s) in the catalog"
                 
-                # Create details - include all entities, not just first 10
+                # Deduplicate entities by FQN before building details
+                # Some search results may contain the same entity multiple times
+                entities_by_fqn = {}
+                for entity in entities:
+                    fqn = entity.get("fullyQualifiedName") or entity.get("name") or ""
+                    if fqn and fqn not in entities_by_fqn:
+                        entities_by_fqn[fqn] = entity
+                
+                # Create details - include all unique entities, not just first 10
                 details = {
                     "entity_type": entity_type,
                     "query": query,
@@ -207,10 +215,11 @@ class CatalogScout(SwarmAgent):
                             "service": entity.get("service", {}).get("displayName") if isinstance(entity.get("service"), dict) else None,
                             "database": entity.get("database", {}).get("displayName") if isinstance(entity.get("database"), dict) else None
                         }
-                        for entity in entities
+                        for entity in entities_by_fqn.values()
                     ],
                     "total_count": total_count,
-                    "returned_count": len(entities)
+                    "returned_count": len(entities_by_fqn),
+                    "deduplicated": True
                 }
                 
                 # Create finding
