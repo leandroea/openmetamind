@@ -98,8 +98,20 @@ class DocumentationAgent(SwarmAgent):
             if match:
                 return match.group(1)
         
-        # Default database if not specified
-        return "default"
+        return None  # No database found - will use other context
+
+    def _extract_table_name_from_task(self, task: str) -> str:
+        """
+        Extract a specific table/entity name from task description.
+        
+        Looks for snake_case words (2+ underscores) which are likely specific
+        entity names like 'big_data_table_with_nested_columns' or 'customer_features'.
+        """
+        words = task.split()
+        for word in words:
+            if word.count('_') >= 2:
+                return word
+        return None
     
     def _is_missing_description(self, description: str) -> bool:
         """
@@ -117,14 +129,14 @@ class DocumentationAgent(SwarmAgent):
     async def _discover_undocumented_entities(
         self,
         mcp_client,
-        database: str = None
+        search_query: str = None
     ) -> List[Dict[str, Any]]:
         """
         Step A - Discover undocumented entities.
         
         Args:
             mcp_client: MCP client for OpenMetadata
-            database: Optional database to scope the search
+            search_query: Query to scope search - can be a table name, database, or "table"
             
         Returns:
             List of undocumented entities with their context
@@ -134,7 +146,7 @@ class DocumentationAgent(SwarmAgent):
         try:
             async with mcp_client as client:
                 # Search for tables
-                query = database if database else "table"
+                query = search_query if search_query else "table"
                 search_result = await client.search_metadata_all(
                     query=query,
                     entity_type="table",
@@ -294,6 +306,11 @@ Respond with ONLY the description text, no preamble or formatting. Be concise an
         if not database:
             database = self._extract_database_from_task(task)
         
+        # Build search query from task and inputs context
+        table_name = self._extract_table_name_from_task(task)
+        if not table_name:
+            table_name = inputs.get("entity_fqn") or inputs.get("table_fqn")
+        
         undocumented = []
         proposed_actions = []
         details_results = []
@@ -310,8 +327,9 @@ Respond with ONLY the description text, no preamble or formatting. Be concise an
                     if self._is_missing_description(context.get("description", "")):
                         undocumented.append(context)
             else:
-                # Discover on our own
-                undocumented = await self._discover_undocumented_entities(mcp_client, database)
+                # Build search query from context
+                search_query = table_name or database or "table"
+                undocumented = await self._discover_undocumented_entities(mcp_client, search_query)
             
             # Edge case: No undocumented entities
             if not undocumented:
