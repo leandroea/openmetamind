@@ -87,19 +87,6 @@ class TestPlanner:
             assert hasattr(execution_plan, 'subtasks')
             assert len(execution_plan.subtasks) > 0
 
-    @pytest.mark.asyncio
-    async def test_planner_includes_parallel_groups(self, planner, sample_swarm_state):
-        """Test that execution plan includes parallel groups."""
-        sample_swarm_state["delegated_task"] = "Analyze data quality"
-        
-        result = planner(sample_swarm_state)
-        
-        execution_plan = result["execution_plan"]
-        if isinstance(execution_plan, dict):
-            assert "parallel_groups" in execution_plan
-        else:
-            assert hasattr(execution_plan, 'parallel_groups')
-
 
 class TestDispatcher:
     """Tests for the Dispatcher node with Supervisor pattern."""
@@ -139,8 +126,7 @@ class TestDispatcher:
                     dependencies=["task1"]
                 )
             ],
-            estimated_duration="30s",
-            parallel_groups=[["task1"], ["task2"]]
+            estimated_duration="30s"
         )
         
         result = dispatcher(sample_swarm_state)
@@ -167,8 +153,7 @@ class TestDispatcher:
                     dependencies=[]
                 )
             ],
-            estimated_duration="30s",
-            parallel_groups=[["task1"]]
+            estimated_duration="30s"
         )
         
         result = dispatcher(sample_swarm_state)

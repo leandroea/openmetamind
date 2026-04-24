@@ -171,7 +171,7 @@ class ExecutionPlan(BaseModel):
     estimated_duration: str
 ```
 
-**Important:** The Planner generates a task list but agents execute **sequentially** via the Supervisor pattern, not in parallel. The `parallel_groups` field is deprecated - use `dependencies` to define ordering.
+**Note:** The `parallel_groups` field has been removed. Agents execute **sequentially** via the Supervisor pattern using the `dependencies` field in Subtask to define task ordering.
 
 **Example Decomposition:**
 

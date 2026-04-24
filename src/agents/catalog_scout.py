@@ -76,37 +76,66 @@ class CatalogScout(SwarmAgent):
         """
         task_lower = task.lower().strip()
         
-        # Handle common patterns
-        # "list all tables" -> "table"
-        if task_lower in ["list all tables", "list all table", "show tables", "show all tables"]:
+        # Handle common patterns - exact match first
+        list_all_tables_patterns = [
+            "list all tables", "list all table", "show tables", "show all tables",
+            "list tables", "show table", "list the tables", "show the tables",
+            "get all tables", "get tables", "find tables", "discover tables",
+            "list all table entities", "list table entities", "list entities",
+            "list all entity", "list entity"
+        ]
+        if task_lower in list_all_tables_patterns:
             return "table"
         
         # "list databases" -> "database"
-        if task_lower in ["list all databases", "list databases", "show databases"]:
+        if task_lower in ["list all databases", "list databases", "show databases", "show all databases", "list database entities"]:
             return "database"
         
         # "list schemas" -> "databaseSchema" 
-        if task_lower in ["list all schemas", "list schemas", "show schemas"]:
+        if task_lower in ["list all schemas", "list schemas", "show schemas", "show all schemas", "list schema entities"]:
             return "databaseSchema"
+        
+        # Handle patterns like "list all X entities" -> just "X"
+        # This regex catches patterns like "list all table entities" -> "table"
+        import re
+        list_all_pattern = re.match(r'list\s*(?:all\s+)?(\w+)\s*entities?', task_lower)
+        if list_all_pattern:
+            entity_word = list_all_pattern.group(1)
+            if entity_word in ['table', 'tables', 'database', 'databases', 'schema', 'schemas']:
+                return "table" if "table" in entity_word else entity_word
+        
+        # If the task starts with "list" or "show" followed by nothing or just stop words,
+        # it's likely a simple list request
+        if task_lower.startswith('list ') or task_lower.startswith('show '):
+            # Extract what comes after "list" or "show"
+            remainder = task_lower
+            if remainder.startswith('list '):
+                remainder = remainder[5:]
+            elif remainder.startswith('show '):
+                remainder = remainder[5:]
             
-        # For queries like "list tables matching X", extract key terms
-        # Remove common filler words
-        stop_words = ['list', 'all', 'the', 'show', 'find', 'get', 'display', 'me', 'what', 'are', 'in', 'with', 'catalog']
-        words = task_lower.split()
-        key_terms = [w for w in words if w not in stop_words and len(w) > 1]
+            # Remove common filler words
+            stop_words = ['all', 'the', 'your', 'from', 'openmetadata', 'catalog', 'using', 'capability', 'available', 'entities', 'entity', 'with']
+            words = remainder.split()
+            key_terms = [w for w in words if w not in stop_words and len(w) > 1]
+            
+            if not key_terms or key_terms[0] in ['tables', 'table', 'databases', 'database', 'schemas', 'schema']:
+                return "table"
+            
+            # If key_terms is short enough, use it
+            if len(key_terms) <= 2:
+                query = " ".join(key_terms)
+                # Make sure it contains entity type
+                if not any(t in query for t in ["table", "database", "schema"]):
+                    query = f"table {query}"
+                return query
         
-        if not key_terms:
-            # Default based on entity type
-            return entity_type if entity_type else "table"
+        # Final fallback: just use "table" for table-related tasks
+        if "table" in task_lower or "list" in task_lower:
+            return "table"
         
-        # Join remaining terms - this works better for OpenMetadata search
-        query = " ".join(key_terms)
-        
-        # If no entity type keyword found, prepend the entity type for better results
-        if not any(t in query for t in ["table", "database", "schema", "dashboard", "service"]):
-            query = f"{entity_type} {query}"
-        
-        return query
+        # Default based on entity type
+        return entity_type if entity_type else "table"
     
     async def execute(
         self, 

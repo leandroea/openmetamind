@@ -2,16 +2,17 @@
 Planner node for the OpenMetaMind swarm.
 
 The Planner decomposes tasks into subtasks and selects appropriate agents.
-It generates an ExecutionPlan with parallelization groups.
+It generates an ExecutionPlan for sequential execution via the Supervisor pattern.
 """
 
 from typing import List, Dict, Any, Optional
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, AIMessage
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 import os
 import logging
+import re
 
 from ..models.plan import Subtask, ExecutionPlan
 from ..models.state import SwarmState
@@ -20,13 +21,119 @@ from ..agents.registry import AgentRegistry
 logger = logging.getLogger(__name__)
 
 
+class MiniMaxJsonOutputParser(JsonOutputParser):
+    """
+    Custom JSON parser that handles responses from MiniMax models.
+    
+    MiniMax models sometimes include thinking tags like <think> ... 
+    and special tokens like <|im_end|> in their responses. This parser
+    extracts the JSON portion from such responses.
+    """
+    
+    def parse_result(self, result, *, partial: bool = False):
+        """Extract clean JSON from LLM response and parse it."""
+        text = result.text if hasattr(result, 'text') else str(result)
+        
+        logger.info(f"Planner: Raw LLM response length: {len(text)}")
+        
+        # Remove thinking tags and their content (various formats)
+        text = re.sub(r'<think>(.*?)', '', text, flags=re.DOTALL)
+        text = re.sub(r'<think>(.*?)', '', text, flags=re.DOTALL)
+        text = re.sub(r'<\|im_end\|>', '', text)
+        text = re.sub(r'<\|[^|]+\|>', '', text)
+        
+        # Look for JSON object or array
+        json_start = text.find('{')
+        if json_start == -1:
+            json_start = text.find('[')
+        
+        if json_start != -1:
+            text = text[json_start:]
+            
+            # Find the end by counting braces/brackets
+            if text.startswith('{'):
+                depth = 0
+                for i, c in enumerate(text):
+                    if c == '{':
+                        depth += 1
+                    elif c == '}':
+                        depth -= 1
+                        if depth == 0:
+                            text = text[:i+1]
+                            break
+            elif text.startswith('['):
+                depth = 0
+                for i, c in enumerate(text):
+                    if c == '[':
+                        depth += 1
+                    elif c == ']':
+                        depth -= 1
+                        if depth == 0:
+                            text = text[:i+1]
+                            break
+        
+        logger.info(f"Planner: Extracted JSON candidate: '{text[:300]}...'")
+        
+        # Try to parse the cleaned JSON
+        import json
+        try:
+            parsed = json.loads(text)
+            return parsed
+        except json.JSONDecodeError as e:
+            logger.warning(f"Planner: First JSON parse failed: {e}")
+            
+            # Try to fix common issues with LLM JSON output
+            import ast
+            try:
+                # Use ast.literal_eval as fallback for Python-style dicts
+                parsed = ast.literal_eval(text)
+                if isinstance(parsed, dict):
+                    return parsed
+                elif isinstance(parsed, list):
+                    return {"subtasks": parsed, "estimated_duration": "unknown"}
+            except Exception as e2:
+                logger.warning(f"Planner: ast.literal_eval failed: {e2}")
+            
+            # Last resort: try manual fixes
+            text_fixed = text
+            text_fixed = re.sub(r"'([^']+)':", r'"\1":', text_fixed)  # Single-quoted keys
+            text_fixed = re.sub(r":\s*'([^']*)'", r': "\1"', text_fixed)  # Single-quoted values
+            text_fixed = re.sub(r': None', ': null', text_fixed)
+            text_fixed = re.sub(r': True', ': true', text_fixed)
+            text_fixed = re.sub(r': False', ': false', text_fixed)
+            # Handle literal \\n (backslash-n) sequences - replace with actual newlines
+            text_fixed = text_fixed.replace(r'\n', '\n')
+            text_fixed = text_fixed.strip()
+            
+            logger.info(f"Planner: Fixed JSON attempt: '{text_fixed[:300]}...'")
+            try:
+                parsed = json.loads(text_fixed)
+                return parsed
+            except json.JSONDecodeError as e3:
+                logger.error(f"Planner: All JSON parsing attempts failed. Final text: '{text_fixed}'")
+                # Return a minimal valid plan so the workflow can continue
+                return {
+                    "subtasks": [{
+                        "subtask_id": "fallback_discovery",
+                        "agent_id": "catalog_scout",
+                        "task_description": "Discover entities as fallback due to parse error",
+                        "required_inputs": [],
+                        "produces_output": "entities",
+                        "dependencies": [],
+                        "max_retries": 1,
+                        "timeout_seconds": 60
+                    }],
+                    "estimated_duration": "30s"
+                }
+
+
 class Planner:
     """
     The Planner node in the LangGraph workflow.
     
     Responsibilities:
     - Task decomposition and agent selection
-    - Generate ExecutionPlan with subtasks and parallelization groups
+    - Generate ExecutionPlan for sequential execution via Supervisor pattern
     - Query Agent Registry for agent capabilities
     """
 
@@ -66,7 +173,7 @@ class Planner:
             7. max_retries: Maximum number of retry attempts (default: 2)
             8. timeout_seconds: Timeout in seconds for execution (default: 60)
             
-            Group subtasks that can run in parallel into parallel_groups.
+            Note: Agents execute sequentially via the Supervisor pattern. Use the dependencies field to define ordering, not parallel_groups.
             
             Respond with a JSON object containing:
             {{
@@ -82,8 +189,7 @@ class Planner:
                         "timeout_seconds": 60
                     }}
                 ],
-                "estimated_duration": "string (e.g., '45.2s')",
-                "parallel_groups": [["subtask_id1", "subtask_id2"], ["subtask_id3"]]
+                "estimated_duration": "string (e.g., '45.2s')"
             }}
             
             For now, use a simple heuristic decomposition:
@@ -93,8 +199,8 @@ class Planner:
             """
         )
         
-        # Set up chain
-        self.decomposition_chain = self.decomposition_prompt | self.llm | JsonOutputParser()
+        # Set up chain with custom parser that handles MiniMax thinking tags
+        self.decomposition_chain = self.decomposition_prompt | self.llm | MiniMaxJsonOutputParser()
 
     def __call__(self, state: SwarmState) -> Dict[str, Any]:
         """
@@ -135,10 +241,10 @@ class Planner:
             
             # Convert to ExecutionPlan object
             subtasks = [Subtask(**subtask_dict) for subtask_dict in plan_result.get("subtasks", [])]
+            # parallel_groups removed - Supervisor pattern uses sequential execution via dependencies
             execution_plan = ExecutionPlan(
                 subtasks=subtasks,
-                estimated_duration=plan_result.get("estimated_duration", "unknown"),
-                parallel_groups=plan_result.get("parallel_groups", [])
+                estimated_duration=plan_result.get("estimated_duration", "unknown")
             )
             
         except Exception as e:
@@ -215,25 +321,11 @@ class Planner:
         # Subtask 4: Integrity critic (would be added in a real implementation)
         # For now, we'll skip it in the fallback
         
-        # Define parallel groups: discovery first, then analysis can run in parallel
-        parallel_groups = []
-        if subtasks:
-            # First group: discovery tasks
-            discovery_tasks = [st.subtask_id for st in subtasks if st.agent_id == "catalog_scout"]
-            if discovery_tasks:
-                parallel_groups.append(discovery_tasks)
-            
-            # Second group: analysis tasks (can run in parallel after discovery)
-            analysis_tasks = [st.subtask_id for st in subtasks if st.agent_id in ["data_steward", "quality_guardian"]]
-            if analysis_tasks:
-                parallel_groups.append(analysis_tasks)
-        
-        # If no parallel groups identified, run sequentially
-        if not parallel_groups:
-            parallel_groups = [[st.subtask_id] for st in subtasks]
+        # Supervisor pattern: agents execute sequentially
+        # For fallback, we just ensure dependencies are set based on agent order
+        # Note: parallel_groups variable is unused but kept for reference during transition
         
         return ExecutionPlan(
             subtasks=subtasks,
-            estimated_duration=f"{len(subtasks) * 30}s",  # Rough estimate
-            parallel_groups=parallel_groups
+            estimated_duration=f"{len(subtasks) * 30}s"  # Rough estimate
         )
