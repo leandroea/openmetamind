@@ -417,10 +417,15 @@ def render_swarm_theater_tab():
                     # Format timestamp
                     if timestamp:
                         try:
-                            dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-                            time_str = dt.strftime("%H:%M:%S")
+                            if isinstance(timestamp, datetime):
+                                time_str = timestamp.strftime("%H:%M:%S")
+                            elif isinstance(timestamp, str):
+                                dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                                time_str = dt.strftime("%H:%M:%S")
+                            else:
+                                time_str = str(timestamp)[:8] if len(str(timestamp)) > 8 else str(timestamp)
                         except:
-                            time_str = timestamp[:8] if len(timestamp) > 8 else timestamp
+                            time_str = datetime.now().strftime("%H:%M:%S")
                     else:
                         time_str = datetime.now().strftime("%H:%M:%S")
                     
