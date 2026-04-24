@@ -113,17 +113,45 @@ class DocumentationAgent(SwarmAgent):
                 return word
         return None
     
-    def _is_missing_description(self, description: str) -> bool:
+    # Placeholder strings that indicate no real description exists
+    _PLACEHOLDER_DESCRIPTIONS = {
+        "no description",
+        "no description available",
+        "n/a",
+        "none",
+        "null",
+        "undefined",
+    }
+
+    def _is_missing_description(self, description: str, entity_name: str = None) -> bool:
         """
         Check if a description is missing or too short to be useful.
+        
         A description is considered missing if:
         - It is None, empty, or whitespace-only
+        - It matches a known placeholder string (case-insensitive)
+        - It is just a repetition of the entity name
         - It is shorter than 10 characters (too short to be useful)
         """
         if not description:
             return True
+        
+        desc_lower = description.lower().strip()
+        
+        # Check against placeholder strings
+        if desc_lower in self._PLACEHOLDER_DESCRIPTIONS:
+            return True
+        
+        # Check if description is just a repetition of the entity name
+        if entity_name:
+            entity_lower = entity_name.lower().strip()
+            # Remove fully qualified name parts for simpler comparison
+            if desc_lower == entity_lower or desc_lower == entity_lower.split('.')[-1]:
+                return True
+        
         if len(description.strip()) < 10:
             return True
+        
         return False
     
     async def _discover_undocumented_entities(
@@ -159,7 +187,7 @@ class DocumentationAgent(SwarmAgent):
                     name = entity.get("fullyQualifiedName", entity.get("name", ""))
                     description = entity.get("description", "")
                     
-                    if self._is_missing_description(description):
+                    if self._is_missing_description(description, entity_name=name):
                         # Gather context for this entity
                         context = {
                             "name": name,
