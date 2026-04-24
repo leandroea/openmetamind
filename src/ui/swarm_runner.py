@@ -128,11 +128,19 @@ class SwarmRunner:
                     
                     # Add entity names if we have them
                     if entity_names:
+                        # Deduplicate entity names before displaying
+                        seen_names = set()
+                        unique_names = []
+                        for name in entity_names:
+                            if name not in seen_names:
+                                seen_names.add(name)
+                                unique_names.append(name)
+                        
                         response_parts.append("\n**Table names:**")
-                        for name in entity_names[:30]:  # Show first 30 tables
+                        for name in unique_names[:30]:  # Show first 30 tables
                             response_parts.append(f"- {name}")
-                        if len(entity_names) > 30:
-                            response_parts.append(f"- ... and {len(entity_names) - 30} more tables")
+                        if len(unique_names) > 30:
+                            response_parts.append(f"- ... and {len(unique_names) - 30} more tables")
                     
                     # Add summary parts
                     for s in summary_parts[:5]:
