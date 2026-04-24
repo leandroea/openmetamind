@@ -11,10 +11,13 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 import os
+import logging
 
 from ..models.plan import Subtask, ExecutionPlan
 from ..models.state import SwarmState
 from ..agents.registry import AgentRegistry
+
+logger = logging.getLogger(__name__)
 
 
 class Planner:
