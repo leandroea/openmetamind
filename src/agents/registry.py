@@ -5,7 +5,7 @@ Implements a plugin system where agents self-register on import.
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 import logging
 
 from .base import SwarmAgent, Capability
@@ -64,6 +64,60 @@ class AgentRegistry:
     def list_agents(self) -> List[SwarmAgent]:
         """List all registered agents."""
         return list(self._agents.values())
+    
+    def list_all_agents(self) -> List[Dict[str, Any]]:
+        """
+        Get detailed metadata for all registered agents.
+        
+        Returns a list of dictionaries containing:
+        - agent_id: Unique identifier
+        - display_name: Human-readable name
+        - description: What the agent does
+        - emoji: Avatar emoji for UI
+        - capabilities: List of capability details
+        """
+        result = []
+        for agent in self._agents.values():
+            capabilities = []
+            for cap in agent.capabilities:
+                capabilities.append({
+                    "name": cap.name,
+                    "description": cap.description
+                })
+            result.append({
+                "agent_id": agent.agent_id,
+                "display_name": agent.display_name,
+                "description": agent.description,
+                "emoji": agent.avatar_emoji,
+                "capabilities": capabilities
+            })
+        return result
+    
+    def format_roster(self) -> str:
+        """
+        Format the agent roster as a human-readable team description.
+        
+        Returns a formatted string that reads like a team roster with
+        emojis, names, and capability summaries.
+        """
+        agents = self.list_all_agents()
+        if not agents:
+            return "I don't have any agents on my team yet."
+        
+        lines = ["📋 **My Team**\n"]
+        for agent in agents:
+            lines.append(f"{agent['emoji']} **{agent['display_name']}** (`{agent['agent_id']}`)")
+            lines.append(f"   {agent['description']}")
+            if agent['capabilities']:
+                cap_list = ", ".join([c['name'] for c in agent['capabilities']])
+                lines.append(f"   Can do: {cap_list}")
+            lines.append("")  # Empty line between agents
+        
+        lines.append("---")
+        lines.append("💡 Feel free to assign me a task! I can help you explore your data, "
+                      "manage governance, check quality, and more.")
+        
+        return "\n".join(lines)
     
     def find_agents_for_task(
         self, 

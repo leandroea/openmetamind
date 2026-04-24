@@ -14,6 +14,7 @@ import os
 import logging
 
 from ..models.state import SwarmState
+from ..agents.registry import get_agent_registry
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,12 @@ class Coordinator:
             3. "delegate_full_swarm": The user is asking a complex governance task that requires 
                multiple agents working together (e.g., "audit the customers database and fix governance gaps").
                
-            4. "clarify": ONLY clarify if the query is genuinely ambiguous with no actionable path.
+            4. "system_introspection": The user is asking about the swarm itself — its agents, capabilities,
+               or how it works. NOT a task for the swarm to execute.
+               Examples: "what agents do you have", "describe your team", "what can you do", 
+               "list your capabilities", "who are you", "how do you work"
+               
+            5. "clarify": ONLY clarify if the query is genuinely ambiguous with no actionable path.
                Example: "show me stuff" - but even "list all tables" is actionable!
                DO NOT clarify queries that reference OpenMetadata entities - delegate them!
             
@@ -74,7 +80,7 @@ class Coordinator:
             
             Respond with a JSON object containing:
             {{
-                "intent": "answer_directly" | "delegate_lightweight" | "delegate_full_swarm" | "clarify",
+                "intent": "answer_directly" | "delegate_lightweight" | "delegate_full_swarm" | "system_introspection" | "clarify",
                 "reasoning": "brief explanation of your decision",
                 "suggested_clarification": "if intent is clarify, what question to ask the user"
             }}
@@ -182,7 +188,21 @@ class Coordinator:
             
             # Route to END (handled by returning special value in LangGraph)
             updates["next"] = "end"
+        
+        elif intent == "system_introspection":
+            # Short-circuit: query registry directly and format response
+            # No swarm delegation, no planner, no supervisor
+            registry = get_agent_registry()
+            roster = registry.format_roster()
             
+            updates["coordinator_response"] = roster
+            updates["next"] = "end"
+            
+            # Add to conversation for transparency
+            updates["conversation_history"] = updates["conversation_history"] + [
+                AIMessage(content=roster)
+            ]
+        
         elif intent == "clarify":
             # Generate clarification question
             try:
