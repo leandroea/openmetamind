@@ -149,14 +149,16 @@ class DataSteward(SwarmAgent):
             return finding
 
         try:
-            # Use the MCP client to get column profiles for the entity
+            # Use the MCP client to get entity details (column info) using available tool
             async with mcp_client as client:
-                # For now, we'll assume the entity is a table and get its profile
-                # In a full implementation, we'd need to determine entity type
-                table_profile = await client.get_table_profile(fqn=entity_fqn)
-
-                # Perform PII detection on columns
-                pii_results = await self._detect_pii_in_columns(entity_fqn, client)
+                # Get entity details which includes column information
+                entity_details = await client.get_entity_details(
+                    entity_type="table",
+                    fqn=entity_fqn
+                )
+                
+                # Perform PII detection on columns using entity details
+                pii_results = self._detect_pii_from_columns(entity_fqn, entity_details)
 
                 # Generate proposed actions based on findings
                 proposed_actions = []
@@ -186,7 +188,7 @@ class DataSteward(SwarmAgent):
                 # Create details
                 details = {
                     "entity_fqn": entity_fqn,
-                    "table_profile": table_profile.model_dump() if hasattr(table_profile, 'model_dump') else table_profile,
+                    "entity_details": entity_details if isinstance(entity_details, dict) else {"raw": str(entity_details)},
                     "column_analysis": pii_results,
                     "pii_count": pii_count,
                     "total_columns": total_columns
@@ -226,46 +228,85 @@ class DataSteward(SwarmAgent):
             )
             return finding
 
-    async def _detect_pii_in_columns(
+    def _detect_pii_from_columns(
         self,
         table_fqn: str,
-        mcp_client: OpenMetadataMCPClient
+        entity_details: Any
     ) -> List[Dict[str, Any]]:
         """
-        Detect PII in columns of a table using LLM-assisted analysis.
+        Detect PII in columns from entity details (available MCP tool data).
 
         Args:
             table_fqn: Fully qualified name of the table
-            mcp_client: Initialized MCP client
+            entity_details: Entity details dict from get_entity_details
 
         Returns:
             List of column analysis results
         """
-        # For this scaffold, we'll return a placeholder result
-        # In a full implementation, we would:
-        # 1. Get column profiles from MCP
-        # 2. For each column, use LLM to analyze name, description, data type for PII indicators
-        # 3. Return structured results
-
-        # Placeholder implementation
-        return [
-            {
-                "column_name": "email",
-                "data_type": "varchar",
-                "is_pii": True,
-                "pii_type": "email",
-                "confidence": 0.95,
-                "reasoning": "Column name 'email' strongly indicates PII"
-            },
-            {
-                "column_name": "customer_id",
-                "data_type": "bigint",
-                "is_pii": False,
-                "pii_type": None,
-                "confidence": 0.8,
-                "reasoning": "ID column, not directly PII but could be linkable"
-            }
-        ]
+        pii_results = []
+        
+        if isinstance(entity_details, dict):
+            columns = entity_details.get('columns', [])
+        else:
+            columns = []
+        
+        if not columns:
+            return pii_results
+        
+        # PII detection patterns
+        pii_patterns = {
+            'email': ['email', 'mail', 'e-mail'],
+            'phone': ['phone', 'tel', 'mobile', 'cell', 'fax'],
+            'ssn': ['ssn', 'social_security', 'national_id'],
+            'credit_card': ['credit', 'card', 'cc_', 'visa', 'mastercard'],
+            'password': ['password', 'pwd', 'secret', 'token', 'api_key'],
+            'address': ['address', 'street', 'city', 'zip', 'postal', 'country'],
+            'name': ['name', 'first_name', 'last_name', 'full_name', 'surname'],
+            'date': ['birth', 'dob', 'birthday', 'date_of_birth', 'birthdate'],
+            'ip': ['ip_address', 'ip', 'mac_address'],
+        }
+        
+        for col in columns:
+            col_name = col.get('name', '')
+            col_name_lower = col_name.lower()
+            data_type = col.get('dataType', col.get('data_type', 'unknown'))
+            description = col.get('description', '')
+            
+            # Check for PII patterns
+            detected_pii_type = None
+            for pii_type, keywords in pii_patterns.items():
+                for keyword in keywords:
+                    if keyword in col_name_lower:
+                        detected_pii_type = pii_type
+                        break
+                if detected_pii_type:
+                    break
+            
+            # Use LLM for additional analysis if available and column has description
+            if detected_pii_type is None and self.llm and description:
+                # Could enhance with LLM here, but for now skip
+                pass
+            
+            if detected_pii_type:
+                pii_results.append({
+                    "column_name": col_name,
+                    "data_type": data_type,
+                    "is_pii": True,
+                    "pii_type": detected_pii_type,
+                    "confidence": 0.9,
+                    "reasoning": f"Column name '{col_name}' matches {detected_pii_type} pattern"
+                })
+            else:
+                pii_results.append({
+                    "column_name": col_name,
+                    "data_type": data_type,
+                    "is_pii": False,
+                    "pii_type": None,
+                    "confidence": 0.7,
+                    "reasoning": "No PII indicators detected in column name"
+                })
+        
+        return pii_results
 
 # Self-register on import
 from .registry import AgentRegistry

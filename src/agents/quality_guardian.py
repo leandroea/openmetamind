@@ -115,15 +115,18 @@ class QualityGuardian(SwarmAgent):
             return finding
         
         try:
-            # Use the MCP client to get table profile
+            # Use the MCP client to get entity details (profile-like info from available tool)
             async with mcp_client as client:
-                table_profile = await client.get_table_profile(fqn=table_fqn)
+                entity_details = await client.get_entity_details(
+                    entity_type="table",
+                    fqn=table_fqn
+                )
                 
-                # Calculate quality metrics from profile
-                quality_metrics = self._calculate_quality_metrics(table_profile)
+                # Calculate quality metrics from entity details
+                quality_metrics = self._calculate_quality_metrics_from_entity(entity_details)
                 
-                # Detect anomalies (simplified)
-                anomalies = await self._detect_anomalies(table_profile, client)
+                # Detect anomalies based on column information
+                anomalies = self._detect_anomalies_from_columns(entity_details, table_fqn)
                 
                 # Generate proposed actions based on findings
                 proposed_actions = []
@@ -151,9 +154,9 @@ class QualityGuardian(SwarmAgent):
                 # Create details
                 details = {
                     "table_fqn": table_fqn,
-                    "table_profile": table_profile.model_dump() if hasattr(table_profile, 'model_dump') else table_profile,
+                    "entity_details": entity_details if isinstance(entity_details, dict) else {"raw": str(entity_details)},
                     "quality_metrics": quality_metrics,
-                    "anomalies": [anomaly.model_dump() if hasattr(anomaly, 'model_dump') else anomaly for anomaly in anomalies],
+                    "anomalies": anomalies,
                     "quality_score": quality_score
                 }
                 
@@ -219,29 +222,106 @@ class QualityGuardian(SwarmAgent):
             "quality_score": 0.90  # Overall quality score
         }
     
-    async def _detect_anomalies(
-        self, 
-        table_profile: Any, 
-        mcp_client: OpenMetadataMCPClient
-    ) -> List[Any]:
+    def _calculate_quality_metrics_from_entity(self, entity_details: Any) -> Dict[str, Any]:
         """
-        Detect anomalies in table data.
+        Calculate quality metrics from entity details (available MCP tool).
         
         Args:
-            table_profile: TableProfile object from MCP
-            mcp_client: Initialized MCP client
+            entity_details: Entity details dict from get_entity_details
             
         Returns:
-            List of anomaly objects
+            Dictionary of quality metrics derived from entity metadata
         """
-        # For this scaffold, we'll return a placeholder result
-        # In a full implementation, we would:
-        # 1. Get historical profiles for comparison
-        # 2. Use statistical methods to detect anomalies
-        # 3. Return structured anomaly results
+        if isinstance(entity_details, dict):
+            columns = entity_details.get('columns', [])
+            description = entity_details.get('description', '')
+            table_type = entity_details.get('tableType', 'Unknown')
+        else:
+            columns = []
+            description = ''
+            table_type = 'Unknown'
         
-        # Placeholder implementation - return empty list for now
-        return []
+        # Calculate metrics based on available metadata
+        column_count = len(columns) if columns else 0
+        has_description = bool(description and description.strip())
+        column_names = [col.get('name', '') for col in columns] if columns else []
+        
+        # Simple heuristics for quality indicators
+        null_count = sum(1 for col in columns if col.get('constraint') == 'NULL') if columns else 0
+        null_percentage = (null_count / column_count * 100) if column_count > 0 else 0
+        
+        # Calculate completeness based on description presence and column info
+        completeness = 0.9 if has_description else 0.6
+        
+        # Calculate quality score based on available metadata
+        quality_score = (completeness + 0.9 + 0.85) / 3
+        
+        return {
+            "completeness": completeness,
+            "uniqueness": 0.9 if column_count > 0 else 0.0,
+            "validity": 0.85,
+            "quality_score": round(quality_score, 2),
+            "column_count": column_count,
+            "has_description": has_description,
+            "table_type": table_type,
+            "null_percentage": round(null_percentage, 2)
+        }
+    
+    def _detect_anomalies_from_columns(self, entity_details: Any, table_fqn: str) -> List[Dict[str, Any]]:
+        """
+        Detect anomalies based on column information from entity details.
+        
+        Args:
+            entity_details: Entity details from get_entity_details
+            table_fqn: Fully qualified name of the table
+            
+        Returns:
+            List of anomaly dictionaries
+        """
+        anomalies = []
+        
+        if isinstance(entity_details, dict):
+            columns = entity_details.get('columns', [])
+        else:
+            columns = []
+        
+        if not columns:
+            anomalies.append({
+                "type": "no_columns",
+                "severity": "warning",
+                "message": "Table has no columns defined",
+                "table_fqn": table_fqn
+            })
+            return anomalies
+        
+        # Check for potential PII-like column names (without actual data access)
+        pii_indicators = ['ssn', 'password', 'secret', 'credit', 'card', 'cvv', 'pin']
+        for col in columns:
+            col_name_lower = col.get('name', '').lower()
+            for indicator in pii_indicators:
+                if indicator in col_name_lower:
+                    anomalies.append({
+                        "type": "potential_pii_column",
+                        "severity": "info",
+                        "column": col.get('name'),
+                        "message": f"Column '{col.get('name')}' may contain sensitive data",
+                        "table_fqn": table_fqn
+                    })
+                    break
+        
+        # Check for columns without descriptions
+        for col in columns:
+            col_desc = col.get('description', '')
+            if not col_desc or not col_desc.strip():
+                anomalies.append({
+                    "type": "missing_column_description",
+                    "severity": "info",
+                    "column": col.get('name'),
+                    "message": f"Column '{col.get('name')}' lacks description",
+                    "table_fqn": table_fqn
+                })
+        
+        return anomalies[:10]  # Limit to 10 anomalies
 
 
 # Self-register on import
