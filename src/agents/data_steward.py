@@ -53,28 +53,28 @@ class DataSteward(SwarmAgent):
     ]
 
     def __init__(self):
-        """Initialize the Data Steward with NVIDIA LLM if available."""
+        """Initialize the Data Steward with MiniMax LLM if available."""
         super().__init__()
         self.llm = None
         if LANGCHAIN_AVAILABLE:
             try:
-                # Initialize ChatOpenAI with NVIDIA endpoint
+                # Initialize ChatOpenAI with MiniMax endpoint
                 import os
-                nvidia_api_key = os.getenv("NVIDIA_API_KEY")
-                if not nvidia_api_key:
-                    logger.warning("NVIDIA_API_KEY not found in environment variables. Data Steward will use regex-only PII detection.")
+                minimax_api_key = os.getenv("MINIMAX_API_KEY")
+                if not minimax_api_key:
+                    logger.warning("MINIMAX_API_KEY not found in environment variables. Data Steward will use regex-only PII detection.")
                 else:
-                    # Initialize ChatOpenAI with NVIDIA endpoint
+                    # Initialize ChatOpenAI with MiniMax endpoint
                     self.llm = ChatOpenAI(
-                        base_url=os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
-                        api_key=nvidia_api_key,
-                        model=os.getenv("LLM_MODEL", "meta/llama-3.3-70b-instruct"),
+                        base_url=os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1"),
+                        api_key=minimax_api_key,
+                        model=os.getenv("LLM_MODEL", "minimax-m2.7"),
                         temperature=0.1,
                         max_tokens=1000
                     )
-                    logger.info("Data Steward initialized with NVIDIA LLM")
+                    logger.info("Data Steward initialized with MiniMax LLM")
             except Exception as e:
-                logger.warning(f"Failed to initialize NVIDIA LLM: {e}. Falling back to regex-only.")
+                logger.warning(f"Failed to initialize MiniMax LLM: {e}. Falling back to regex-only.")
                 self.llm = None
 
     async def can_handle(self, task_description: str) -> float:

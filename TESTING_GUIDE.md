@@ -4,7 +4,7 @@ This guide provides step-by-step instructions to test the OpenMetaMind project.
 
 ## Prerequisites
 - Python 3.13+ virtual environment (`.venv`) with dependencies installed
-- `.env` file configured with API keys (NVIDIA_API_KEY, OPENMETADATA_MCP_URL, etc.)
+- `.env` file configured with API keys (MINIMAX_API_KEY, OPENMETADATA_MCP_URL, etc.)
 
 ---
 
@@ -31,7 +31,7 @@ dir .env
 ## Step 2: Syntax and Import Checks
 
 Verify all Python modules can be imported without errors.
-**Important:** The `.env` file must be loaded first for NVIDIA_API_KEY.
+**Important:** The `.env` file must be loaded first for MINIMAX_API_KEY.
 
 ### 2.1 Test Core Module Imports
 ```cmd

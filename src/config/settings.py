@@ -31,16 +31,16 @@ class Settings(BaseSettings):
         description="JWT token for OpenMetadata authentication"
     )
     
-    # NVIDIA LLM API
-    nvidia_api_key: str = Field(
-        description="API key for NVIDIA's LLM API"
+    # MiniMax LLM API
+    minimax_api_key: str = Field(
+        description="API key for MiniMax's LLM API"
     )
-    nvidia_base_url: str = Field(
-        default="https://integrate.api.nvidia.com/v1",
-        description="Base URL for NVIDIA API"
+    minimax_base_url: str = Field(
+        default="https://api.minimax.io/v1",
+        description="Base URL for MiniMax API"
     )
     llm_model: str = Field(
-        default="meta/llama-3.3-70b-instruct",
+        default="minimax-m2.7",
         description="LLM model to use"
     )
     
@@ -98,8 +98,8 @@ class Settings(BaseSettings):
     def get_llm_config(self) -> dict:
         """Get LLM configuration for ChatOpenAI."""
         return {
-            "base_url": self.nvidia_base_url,
-            "api_key": self.nvidia_api_key,
+            "base_url": self.minimax_base_url,
+            "api_key": self.minimax_api_key,
             "model": self.llm_model,
             "temperature": 0.1,
             "max_tokens": 1000

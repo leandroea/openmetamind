@@ -28,16 +28,16 @@ class Planner:
     """
 
     def __init__(self):
-        """Initialize the Planner with NVIDIA LLM."""
-        # Initialize ChatOpenAI with NVIDIA endpoint
-        nvidia_api_key = os.getenv("NVIDIA_API_KEY")
-        if not nvidia_api_key:
-            raise ValueError("NVIDIA_API_KEY must be set in environment variables")
+        """Initialize the Planner with MiniMax LLM."""
+        # Initialize ChatOpenAI with MiniMax endpoint
+        minimax_api_key = os.getenv("MINIMAX_API_KEY")
+        if not minimax_api_key:
+            raise ValueError("MINIMAX_API_KEY must be set in environment variables")
         
         self.llm = ChatOpenAI(
-            base_url=os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
-            api_key=nvidia_api_key,
-            model=os.getenv("LLM_MODEL", "meta/llama-3.3-70b-instruct"),
+            base_url=os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1"),
+            api_key=minimax_api_key,
+            model=os.getenv("LLM_MODEL", "minimax-m2.7"),
             temperature=0.1,
             max_tokens=1000
         )

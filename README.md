@@ -30,7 +30,7 @@ Autonomous multi-agent swarm for OpenMetadata data governance using LangGraph.
 4. Copy `.env.example` to `.env` and fill in the required values:
    - `OPENMETADATA_MCP_URL`: URL of your OpenMetadata MCP server
    - `OPENMETADATA_JWT_TOKEN`: JWT token for authenticating with OpenMetadata MCP server
-   - `NVIDIA_API_KEY`: API key for NVIDIA's LLM API (OpenAI-compatible)
+   - `MINIMAX_API_KEY`: API key for MiniMax's LLM API (OpenAI-compatible)
    - `DATABASE_URL`: Connection string for the application's database (e.g., SQLite, PostgreSQL)
    - `SLACK_BOT_TOKEN`: Token for Slack bot (if using Slack integration)
    - `SLACK_SIGNING_SECRET`: Secret for Slack request verification
