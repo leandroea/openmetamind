@@ -49,31 +49,35 @@ async def test_list_tables_in_catalog():
 
 
 @pytest.mark.asyncio
-async def test_mcp_client_direct_call():
+async def test_mcp_pagination_all_results():
     """
-    Direct test of MCP client with real OpenMetadata connection.
-    Uses the actual MCP methods available on the client.
+    Test the search_metadata_all function which implements pagination
+    to fetch ALL results from OpenMetadata.
     """
     async with get_mcp_client() as mcp_client:
-        # Use search_metadata to find tables
-        result = await mcp_client.search_metadata(
+        # Use the pagination method to get all results
+        result = await mcp_client.search_metadata_all(
             query="table",
             entity_type="table",
-            size=10
+            max_results=1000
         )
-        print(f"Search metadata result: {result}")
         
-        # Also test semantic_search
-        try:
-            semantic_result = await mcp_client.semantic_search(
-                query="tables in catalog",
-                size=5
-            )
-            print(f"Semantic search result: {semantic_result}")
-        except Exception as e:
-            print(f"Semantic search error: {e}")
+        print(f"Total found: {result.get('totalFound', 0)}")
+        print(f"Returned count: {result.get('returnedCount', 0)}")
+        print(f"Has more: {result.get('hasMore', False)}")
+        print(f"Number of entities: {len(result.get('results', []))}")
         
-        assert result is not None, "Should get search results"
+        assert result is not None
+        entities = result.get("results", [])
+        total = result.get("totalFound", 0)
+        
+        print(f"\nFirst 3 tables:")
+        for i, entity in enumerate(entities[:3]):
+            print(f"  {i+1}. {entity.get('fullyQualifiedName')}")
+        
+        print(f"\nLast 3 tables:")
+        for i, entity in enumerate(entities[-3:]):
+            print(f"  {len(entities)-2+i}. {entity.get('fullyQualifiedName')}")
 
 
 @pytest.mark.asyncio

@@ -240,6 +240,55 @@ class OpenMetadataMCPClient:
             
         return await self._call_mcp_tool("search_metadata", arguments)
 
+    async def search_metadata_all(
+        self,
+        query: str,
+        entity_type: Optional[str] = None,
+        max_results: int = 1000
+    ) -> Dict[str, Any]:
+        """
+        Search for data assets and return ALL results with pagination.
+        
+        Args:
+            query: Natural language search query
+            entity_type: Filter by entity type (e.g., 'table', 'dashboard')
+            max_results: Maximum number of results to fetch (default 1000)
+            
+        Returns:
+            Search results with all entities found, plus pagination info
+        """
+        all_entities = []
+        current_offset = 0
+        page_size = 50  # Fetch 50 at a time
+        
+        while len(all_entities) < max_results:
+            arguments = {"query": query, "size": page_size}
+            if entity_type:
+                arguments["entityType"] = entity_type
+            
+            result = await self._call_mcp_tool("search_metadata", arguments)
+            
+            entities = result.get("results", [])
+            all_entities.extend(entities)
+            
+            # Check if there are more results
+            has_more = result.get("hasMore", False)
+            total_found = result.get("totalFound", 0)
+            
+            # If we've fetched everything or reached max_results, stop
+            if not has_more or len(all_entities) >= total_found:
+                break
+                
+            # Continue to next page
+            current_offset += page_size
+        
+        return {
+            "results": all_entities[:max_results],
+            "totalFound": len(all_entities),
+            "hasMore": len(all_entities) < total_found,
+            "returnedCount": len(all_entities)
+        }
+
     async def semantic_search(
         self, 
         query: str,

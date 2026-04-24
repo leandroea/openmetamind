@@ -145,24 +145,28 @@ class CatalogScout(SwarmAgent):
         
         try:
             # Use the MCP client to search for entities using keyword search
+            # Use search_metadata_all to get ALL results with pagination
             async with mcp_client as client:
                 # Build query from task description
                 # Clean up the query - remove stop words and use just key terms
                 query = self._build_search_query(task)
-                search_result = await client.search_metadata(
+                
+                # Use the pagination method to get all results
+                search_result = await client.search_metadata_all(
                     query=query,
                     entity_type=entity_type,
-                    size=20
+                    max_results=1000  # Get up to 1000 results
                 )
                 
                 # Extract entities from search results
                 # The response structure has results at the top level
                 entities = search_result.get("results", [])
+                total_count = search_result.get("totalFound", len(entities))
                 
                 # Create summary
-                summary = f"Found {len(entities)} {entity_type}(s) matching query"
+                summary = f"Found {total_count} {entity_type}(s) in the catalog"
                 
-                # Create details
+                # Create details - include all entities, not just first 10
                 details = {
                     "entity_type": entity_type,
                     "query": query,
@@ -170,11 +174,14 @@ class CatalogScout(SwarmAgent):
                         {
                             "name": entity.get("name"),
                             "fullyQualifiedName": entity.get("fullyQualifiedName"),
-                            "description": entity.get("description")
+                            "description": entity.get("description"),
+                            "service": entity.get("service", {}).get("displayName") if isinstance(entity.get("service"), dict) else None,
+                            "database": entity.get("database", {}).get("displayName") if isinstance(entity.get("database"), dict) else None
                         }
-                        for entity in entities[:10]  # Limit to first 10 for brevity
+                        for entity in entities
                     ],
-                    "total_count": len(entities)
+                    "total_count": total_count,
+                    "returned_count": len(entities)
                 }
                 
                 # Create finding
@@ -189,7 +196,7 @@ class CatalogScout(SwarmAgent):
                     confidence=0.95,  # High confidence in discovery results
                     proposed_actions=[],  # Discovery doesn't propose actions directly
                     mcp_tool_calls=[],  # Would be populated by the MCP client internally
-                    llm_reasoning=f"The Catalog Scout discovered {len(entities)} {entity_type}(s) by querying the OpenMetadata MCP server using search_metadata."
+                    llm_reasoning=f"The Catalog Scout discovered {total_count} {entity_type}(s) by querying the OpenMetadata MCP server using search_metadata with pagination. All entities are included in the response."
                 )
                 
                 return finding
