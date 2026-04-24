@@ -114,7 +114,7 @@ class IntegrityCritic:
             Dictionary with state updates including critic review and routing decision
         """
         blackboard = state.get("blackboard", {})
-        findings_raw = blackboard.get("findings", [])
+        findings_raw = state.get("findings", [])  # Findings accumulated at top level via operator.add
         
         # Convert raw findings to AgentFinding objects if needed
         findings: List[AgentFinding] = []
@@ -265,12 +265,12 @@ class IntegrityCritic:
             next_step = "human_gate"
         
         # Prepare state updates
+        # Note: findings and agent_statuses are at top level with operator.add
         updates = {
             "critic_review": critic_review.dict(),
             "blackboard": {
-                "findings": blackboard.get("findings", []),  # Keep existing findings
+                # Only keep conflicts in blackboard - other fields are at top level
                 "conflicts": updated_conflicts,  # Add new conflicts
-                "agent_statuses": blackboard.get("agent_statuses", {}),
                 "execution_phase": "reviewing"
             },
             "next": next_step

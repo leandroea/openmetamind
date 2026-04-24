@@ -69,8 +69,8 @@ class TestIntegrityCritic:
             llm_reasoning="Profile analysis"
         )
         
+        sample_swarm_state["findings"] = [finding1, finding2]
         sample_swarm_state["blackboard"] = {
-            "findings": [finding1, finding2],
             "conflicts": [],
             "agent_statuses": {},
             "execution_phase": "reviewing"
@@ -243,8 +243,8 @@ class TestIntegrityCritic:
             llm_reasoning="Guess"
         )
         
+        sample_swarm_state["findings"] = [finding_with_evidence, finding_without_evidence]
         sample_swarm_state["blackboard"] = {
-            "findings": [finding_with_evidence, finding_without_evidence],
             "conflicts": [],
             "agent_statuses": {},
             "execution_phase": "reviewing"

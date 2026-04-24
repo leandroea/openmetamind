@@ -116,17 +116,23 @@ class TestDispatcher:
         return Dispatcher()
 
     def test_dispatcher_returns_empty_for_no_plan(self, dispatcher, sample_swarm_state):
-        """Test that dispatcher returns empty Command when no plan exists."""
+        """Test that dispatcher returns empty for no plan."""
+        from src.graph.dispatcher import dispatcher_conditional_edge
+        
         sample_swarm_state["execution_plan"] = None
         
+        # Test dispatcher node returns simple dict
         result = dispatcher(sample_swarm_state)
+        assert result == {"dispatcher_ran": True}
         
-        # Command goes to integrity_critic when no plan
-        assert result.goto == "integrity_critic"
+        # Test conditional edge routes to integrity_critic when no plan
+        routing = dispatcher_conditional_edge(sample_swarm_state)
+        assert routing == "integrity_critic"
 
     def test_dispatcher_returns_sends_for_ready_subtasks(self, dispatcher, sample_swarm_state):
         """Test that dispatcher returns Command with Send objects for ready subtasks."""
         from src.models.plan import Subtask, ExecutionPlan
+        from src.graph.dispatcher import dispatcher_conditional_edge
         
         sample_swarm_state["execution_plan"] = ExecutionPlan(
             subtasks=[
@@ -145,13 +151,16 @@ class TestDispatcher:
         sample_swarm_state["completed_subtasks"] = []
         sample_swarm_state["blackboard"] = {"findings": [], "conflicts": [], "agent_statuses": {}, "execution_phase": "executing"}
         
+        # Test dispatcher node returns simple dict
         result = dispatcher(sample_swarm_state)
+        assert result == {"dispatcher_ran": True}
         
-        # Result is a Command with Send objects in goto
-        sends = result.goto
-        assert len(sends) > 0
+        # Test conditional edge returns sends
+        routing = dispatcher_conditional_edge(sample_swarm_state)
+        assert isinstance(routing, list)
+        assert len(routing) > 0
         # Check that Send objects have correct structure
-        for send in sends:
+        for send in routing:
             assert hasattr(send, 'node')
             assert send.node == "agent_executor"
             assert hasattr(send, 'arg')
@@ -161,6 +170,7 @@ class TestDispatcher:
     def test_dispatcher_respects_dependencies(self, dispatcher, sample_swarm_state):
         """Test that dispatcher only sends tasks with satisfied dependencies."""
         from src.models.plan import Subtask, ExecutionPlan
+        from src.graph.dispatcher import dispatcher_conditional_edge
         
         sample_swarm_state["execution_plan"] = ExecutionPlan(
             subtasks=[
@@ -187,16 +197,16 @@ class TestDispatcher:
         sample_swarm_state["completed_subtasks"] = []  # No tasks completed yet
         sample_swarm_state["blackboard"] = {"findings": [], "conflicts": [], "agent_statuses": {}, "execution_phase": "executing"}
         
-        result = dispatcher(sample_swarm_state)
-        
+        routing = dispatcher_conditional_edge(sample_swarm_state)
         # Only task1 should be ready (no dependencies)
-        sends = result.goto
-        assert len(sends) == 1
-        assert sends[0].arg["subtask_id"] == "task1"
+        assert isinstance(routing, list)
+        assert len(routing) == 1
+        assert routing[0].arg["subtask_id"] == "task1"
 
     def test_dispatcher_skips_completed_tasks(self, dispatcher, sample_swarm_state):
         """Test that dispatcher skips already completed tasks."""
         from src.models.plan import Subtask, ExecutionPlan
+        from src.graph.dispatcher import dispatcher_conditional_edge
         
         sample_swarm_state["execution_plan"] = ExecutionPlan(
             subtasks=[
@@ -215,10 +225,9 @@ class TestDispatcher:
         sample_swarm_state["completed_subtasks"] = ["task1"]  # Already completed
         sample_swarm_state["blackboard"] = {"findings": [], "conflicts": [], "agent_statuses": {}, "execution_phase": "executing"}
         
-        result = dispatcher(sample_swarm_state)
-        
-        # task1 should be skipped - dispatcher goes to integrity_critic
-        assert result.goto == "integrity_critic"
+        routing = dispatcher_conditional_edge(sample_swarm_state)
+        # task1 should be skipped - routing should go to integrity_critic
+        assert routing == "integrity_critic"
 
 
 class TestSwarmGraph:

@@ -11,8 +11,11 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 import os
+import logging
 
 from ..models.state import SwarmState
+
+logger = logging.getLogger(__name__)
 
 
 class Coordinator:
@@ -113,6 +116,9 @@ class Coordinator:
         Returns:
             Dictionary with state updates
         """
+        logger.info(f"Coordinator called with state keys: {list(state.keys())}")
+        logger.info(f"User input: {state.get('user_input', 'NOT FOUND')}")
+        
         user_query = state.get("user_input", "")
         conversation_history = state.get("conversation_history", [])
         
@@ -134,6 +140,7 @@ class Coordinator:
             suggested_clarification = intent_result.get("suggested_clarification", "")
             
         except Exception as e:
+            logger.error(f"Intent classification failed: {str(e)}", exc_info=True)
             # Fallback to clarification if intent classification fails
             intent = "clarify"
             reasoning = f"Intent classification failed: {str(e)}"

@@ -155,6 +155,8 @@ SwarmState = TypedDict(
     "SwarmState",
     {
         "blackboard": BlackboardState,
+        "findings": Annotated[List[AgentFinding], operator.add],  # Findings at top level for accumulation
+        "agent_statuses": Annotated[Dict[str, str], operator.or_],  # Agent statuses at top level for parallel updates
         "execution_plan": Optional[Dict[str, Any]],  # Will be ExecutionPlan model
         "completed_subtasks": Annotated[List[str], operator.add],  # Accumulates from parallel branches
         "current_parallel_group": Annotated[List[str], operator.add],  # Accumulates from parallel branches

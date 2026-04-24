@@ -13,6 +13,7 @@ import os
 
 from ..models.state import SwarmState
 from .nodes import coordinator, planner, dispatcher, agent_executor_node, integrity_critic, action_executor_node
+from .dispatcher import dispatcher_conditional_edge
 
 
 def build_swarm_graph(checkpointer=None):
@@ -57,10 +58,16 @@ def build_swarm_graph(checkpointer=None):
     # Planner always goes to dispatcher
     workflow.add_edge("planner", "dispatcher")
     
-    # Dispatcher uses Send API for parallel execution
-    # When dispatcher returns Command(goto=[Send(...)]), the Send triggers agent_executor
-    # After Send completes, dispatcher runs again and routes based on pending tasks
-    # No direct edge from dispatcher to agent_executor - use Send API instead
+    # Dispatcher routes based on whether it has Send objects to spawn
+    # The conditional edge function checks state and returns either Send objects or a node name
+    workflow.add_conditional_edges(
+        "dispatcher",
+        dispatcher_conditional_edge,
+        {
+            "agent_executor": "agent_executor",  # Send API will trigger agent_executor in parallel
+            "integrity_critic": "integrity_critic"  # No pending tasks, go to critic
+        }
+    )
     
     # Agent executor routes based on completion status
     workflow.add_conditional_edges(

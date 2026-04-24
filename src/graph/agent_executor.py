@@ -134,8 +134,6 @@ def agent_executor_node(state: SwarmState) -> Dict[str, Any]:
         logger.warning(f"Agent executor called with missing fields: subtask_id={subtask_id}, agent_id={agent_id}. Skipping.")
         # Return empty updates - no state changes
         return {
-            "findings": [],
-            "agent_statuses": {},
             "completed_subtasks": []
         }
     

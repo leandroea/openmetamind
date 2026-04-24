@@ -174,18 +174,25 @@ async def run_swarm(query: SwarmQuery, graph=Depends(get_graph)):
         # Execute the graph
         final_state = await graph.ainvoke(initial_state, config=config)
         
+        # Debug: Log the final state keys and findings
+        logger.info(f"Final state keys: {list(final_state.keys())}")
+        logger.info(f"Findings in state: {len(final_state.get('findings', []))}")
+        
         # Extract response data
         coordinator_response = final_state.get("coordinator_response")
         blackboard = final_state.get("blackboard", {})
+        # Findings and agent_statuses are at top level with operator.add for accumulation
+        findings = final_state.get("findings", [])
+        agent_statuses = final_state.get("agent_statuses", {})
         approved_actions = final_state.get("approved_actions", [])
         execution_results = final_state.get("action_results")
         
         # Create a summary of the blackboard
         blackboard_summary = {
-            "findings_count": len(blackboard.get("findings", [])),
-            "conflicts_count": len(blackboard.get("conflicts", [])),
-            "agent_statuses": blackboard.get("agent_statuses", {}),
-            "execution_phase": blackboard.get("execution_phase", "unknown")
+            "findings_count": len(findings),
+            "conflicts_count": len(blackboard.get("conflicts", [])) if isinstance(blackboard, dict) else 0,
+            "agent_statuses": agent_statuses,
+            "execution_phase": blackboard.get("execution_phase", "unknown") if isinstance(blackboard, dict) else "unknown"
         }
         
         return SwarmResponse(
