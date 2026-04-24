@@ -151,15 +151,20 @@ BlackboardState = TypedDict(
 )
 
 # Overall Swarm State
+# Note: With Supervisor/Manager pattern, state updates are sequential (not parallel),
+# so we don't need Annotated types with operator.add. The Supervisor explicitly
+# creates new lists with all previous items plus new items.
 SwarmState = TypedDict(
     "SwarmState",
     {
         "blackboard": BlackboardState,
-        "findings": Annotated[List[AgentFinding], operator.add],  # Findings at top level for accumulation
-        "agent_statuses": Annotated[Dict[str, str], operator.or_],  # Agent statuses at top level for parallel updates
+        "findings": List[AgentFinding],  # Accumulated findings from Supervisor
+        "agent_statuses": Dict[str, str],  # Agent statuses from Supervisor
+        "pending_tasks": List[Dict[str, Any]],  # Task queue for Supervisor
+        "current_task_index": int,  # Current position in task queue
         "execution_plan": Optional[Dict[str, Any]],  # Will be ExecutionPlan model
-        "completed_subtasks": Annotated[List[str], operator.add],  # Accumulates from parallel branches
-        "current_parallel_group": Annotated[List[str], operator.add],  # Accumulates from parallel branches
+        "completed_subtasks": List[str],  # Completed task IDs from Supervisor
+        "current_parallel_group": List[str],  # Legacy - not used in Supervisor pattern
         "user_query": str,
         "user_input": str,  # Keeping for backward compatibility
         "coordinator_notes": Optional[str],
@@ -169,6 +174,6 @@ SwarmState = TypedDict(
         "critic_review": Optional[Dict[str, Any]],
         "approved_actions": List[Dict[str, Any]],
         "execution_results": Optional[Dict[str, Any]],
-        "executed_actions": Annotated[List[str], operator.add],  # Accumulates from parallel branches
+        "executed_actions": List[str],  # Legacy - not used in Supervisor pattern
     },
 )

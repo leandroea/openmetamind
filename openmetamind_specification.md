@@ -43,32 +43,40 @@
           |                                          v
           |                             +-----------------------------+
           |                             |      DISPATCHER             |
-          |                             |  - Spawns agents via Send() |
-          |                             |  - Parallel execution       |
+          |                             |  - Initializes task queue   |
+          |                             |  - Sets execution order     |
           |                             +-----------------------------+
           |                                          |
-          |                    +---------------------+---------------------+
-          |                    v                     v                     v
-          |           +-------------+      +-------------+      +-------------+
-          |           |  Agent A    |      |  Agent B    |      |  Agent C    |
-          |           |  (Plugin)   |      |  (Plugin)   |      |  (Plugin)   |
-          |           +------+------+      +------+------+      +------+------+
-          |                  |                    |                    |
-          |                  +--------------------+--------------------+
-          |                                       v
+          |                                          v
+          |                             +-----------------------------+
+          |                             |      SUPERVISOR              |
+          |                             |  - Iterates through tasks   |
+          |                             |  - Calls agents sequentially|
+          |                             |  - Synthesizes results      |
+          |                             +-----------------------------+
+          |                                          |
+          |                           +--------------+---------------+
+          |                           v                              v
+          |                   +-------------+              +-------------+
+          |                   |  Agent A    |              |  Agent B    |
+          |                   |  (Plugin)   |              |  (Plugin)   |
+          |                   +------+------+              +------+------+
+          |                          |                              |
+          |                          +--------------+---------------+
+          |                                         v
           |                          +-----------------------------+
           |                          |      BLACKBOARD             |
           |                          |  (Append-only shared state) |
           |                          +-----------------------------+
-          |                                       |
-          |                                       v
+          |                                         |
+          |                                         v
           |                          +-----------------------------+
           |                          |   INTEGRITY CRITIC          |
           |                          |  - Validates all findings   |
           |                          |  - Detects conflicts        |
           |                          |  - Assigns confidence       |
           |                          +-----------------------------+
-          |                                       |
+          |                                         |
           |                          +------------+------------+
           |                          v                         v
           |               +-----------------+      +-----------------+
@@ -79,11 +87,11 @@
           |                        |                        |
           |                        +------------+-----------+
           |                                     v
-          |                        +-----------------------------+
-          |                        |    ACTION EXECUTOR          |
-          |                        |  - MCP write operations     |
-          |                        |  - Batched, idempotent      |
-          |                        +-----------------------------+
+          |                          +-----------------------------+
+          |                          |    ACTION EXECUTOR          |
+          |                          |  - MCP write operations     |
+          |                          |  - Batched, idempotent      |
+          |                          +-----------------------------+
           |                                     |
           +-------------------------------------+
                         (Response + Audit Trail)
@@ -205,34 +213,103 @@ plan:
 
 #### 3.2.3 The Dispatcher (dispatcher.py)
 
-**Role:** Executes the plan using LangGraph's Send API. Handles parallelization, retries, and timeouts.
+**Role:** Initializes the task queue from the Planner's execution plan. Sets up the execution order for the Supervisor.
 
 **Implementation:**
 ```python
-from langgraph.types import Send
-
 def dispatcher_node(state: SwarmState):
     plan = state['execution_plan']
     
-    # Group subtasks by parallelization level
-    sends = []
-    for subtask in plan.current_parallel_group():
-        # Check if dependencies are satisfied
-        if all(dep in state['completed_subtasks'] for dep in subtask.dependencies):
-            sends.append(Send(
-                "agent_executor",
-                {
-                    "subtask_id": subtask.subtask_id,
-                    "agent_id": subtask.agent_id,
-                    "task": subtask.task_description,
-                    "inputs": {k: state["blackboard"][k] for k in subtask.required_inputs}
-                }
-            ))
+    # Convert plan subtasks to pending task queue
+    pending_tasks = []
+    for subtask in plan.subtasks:
+        pending_tasks.append({
+            "subtask_id": subtask.subtask_id,
+            "agent_id": subtask.agent_id,
+            "task": subtask.task_description,
+            "inputs": subtask.required_inputs,
+            "dependencies": subtask.dependencies,
+            "produces_output": subtask.produces_output
+        })
     
-    return sends
+    return {
+        "pending_tasks": pending_tasks,
+        "current_task_index": 0,
+        "next": "supervisor"
+    }
 ```
 
 **Key Feature:** Dynamic replanning. If an agent fails or returns unexpected results, the Planner can regenerate the DAG mid-execution.
+
+#### 3.2.4 The Supervisor (supervisor.py)
+
+**Role:** The Supervisor/Manager that orchestrates agent execution sequentially. After each agent completes, the Supervisor synthesizes results and decides whether to continue the loop or move to the Integrity Critic.
+
+**Implementation:**
+```python
+class Supervisor:
+    """The Supervisor node - executes tasks sequentially and synthesizes results."""
+    
+    def __call__(self, state: SwarmState):
+        pending_tasks = state.get("pending_tasks", [])
+        
+        if not pending_tasks:
+            # All tasks completed - move to critic
+            return {"next": "integrity_critic"}
+        
+        # Get and execute current task
+        current_task = pending_tasks[0]
+        
+        # Execute the agent for this task
+        finding = self._execute_agent(current_task, state)
+        
+        # Update state with results
+        new_findings = state.get("findings", []) + [finding]
+        new_completed = state.get("completed_subtasks", []) + [current_task["subtask_id"]]
+        remaining_tasks = pending_tasks[1:]
+        
+        if remaining_tasks:
+            # More tasks to do - stay in supervisor loop
+            return {
+                "findings": new_findings,
+                "completed_subtasks": new_completed,
+                "pending_tasks": remaining_tasks,
+                "agent_statuses": {current_task["agent_id"]: "completed"},
+                "next": "supervisor"
+            }
+        else:
+            # All done - move to critic
+            return {
+                "findings": new_findings,
+                "completed_subtasks": new_completed,
+                "pending_tasks": [],
+                "agent_statuses": {current_task["agent_id"]: "completed"},
+                "next": "integrity_critic"
+            }
+```
+
+**Supervisor Loop Flow:**
+```
+Supervisor called with pending_tasks = [TaskA, TaskB, TaskC]
+
+1. Execute TaskA → Agent returns FindingA
+2. Update state: findings = [FindingA], pending_tasks = [TaskB, TaskC]
+3. Return "next": "supervisor" → Loop back
+
+4. Execute TaskB → Agent returns FindingB
+5. Update state: findings = [FindingA, FindingB], pending_tasks = [TaskC]
+6. Return "next": "supervisor" → Loop back
+
+7. Execute TaskC → Agent returns FindingC
+8. Update state: findings = [FindingA, FindingB, FindingC], pending_tasks = []
+9. Return "next": "integrity_critic" → Move to critic
+```
+
+**Benefits of Supervisor Pattern:**
+- Sequential execution eliminates concurrent state update conflicts
+- Linear flow makes debugging and tracing straightforward
+- Each agent result is immediately synthesized before moving to next
+- No complex parallel group management needed
 
 #### 3.2.4 Agent Registry (agents/registry.py)
 
