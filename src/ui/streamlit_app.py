@@ -11,6 +11,10 @@ import time
 import asyncio
 from datetime import datetime
 from typing import Dict, Any, List, Optional
+
+from dotenv import load_dotenv
+load_dotenv()
+
 import websocket
 import threading
 
@@ -130,7 +134,7 @@ st.markdown("""
 
 
 # Direct import for swarm runner
-from .swarm_runner import get_swarm_runner
+from src.ui.swarm_runner import get_swarm_runner
 
 # API Configuration - no longer needed for swarm calls
 # Keeping for backward compatibility if needed
@@ -157,7 +161,7 @@ def init_session_state():
 
 def get_agents() -> List[Dict[str, Any]]:
     """Fetch registered agents from the agent registry."""
-    from ..agents.registry import AgentRegistry
+    from src.agents.registry import AgentRegistry
     registry = AgentRegistry()
     agents = registry.list_agents()
     
@@ -206,7 +210,7 @@ def approve_actions(session_id: str, action_ids: List[str], decision: str) -> bo
 def check_health() -> Dict[str, str]:
     """Check MCP and swarm health status directly."""
     try:
-        from ..mcp.client import get_mcp_client
+        from src.mcp.client import get_mcp_client
         client = get_mcp_client()
         # Just verify client can be created, not actually connect
         return {"status": "healthy", "mcp_connection": "configured"}

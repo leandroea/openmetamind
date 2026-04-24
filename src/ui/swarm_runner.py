@@ -10,9 +10,9 @@ import logging
 from typing import Dict, Any, Optional
 from uuid import uuid4
 
-from ..graph.swarm_graph import build_swarm_graph
-from ..models.state import SwarmState
-from ..agents.registry import AgentRegistry
+from src.graph.swarm_graph import build_swarm_graph
+from src.models.state import SwarmState
+from src.agents.registry import AgentRegistry
 
 logger = logging.getLogger(__name__)
 
