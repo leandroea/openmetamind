@@ -47,18 +47,25 @@ class Coordinator:
         self.intent_prompt = ChatPromptTemplate.from_template(
             """You are the Coordinator for OpenMetaMind, an autonomous multi-agent swarm for OpenMetadata data governance.
             
+            IMPORTANT: OpenMetadata is your data source. Users ask about tables, databases, schemas, columns, quality, tags, owners - these are all OpenMetadata entities.
+            
             Analyze the user's query and classify their intent into one of these categories:
             
             1. "answer_directly": The user is asking a simple factual question that can be answered from 
                conversation history or general knowledge without needing the swarm.
-               
-            2. "delegate_lightweight": The user is asking a simple governance task that requires 
-               only a single agent (e.g., "what is the schema of table X?").
-               
+               Example: "What did we find about the customers table?" (follow-up question)
+            
+            2. "delegate_lightweight": The user is asking about OpenMetadata entities (tables, databases, 
+               schemas, columns, tags, owners, quality metrics) that can be answered by a single agent.
+               Example: "list all tables", "show me the schema of orders", "who owns the customers table"
+               - These should be delegated to the swarm, not clarified!
+            
             3. "delegate_full_swarm": The user is asking a complex governance task that requires 
                multiple agents working together (e.g., "audit the customers database and fix governance gaps").
                
-            4. "clarify": The user's query is ambiguous or lacks necessary information to proceed.
+            4. "clarify": ONLY clarify if the query is genuinely ambiguous with no actionable path.
+               Example: "show me stuff" - but even "list all tables" is actionable!
+               DO NOT clarify queries that reference OpenMetadata entities - delegate them!
             
             User query: {user_query}
             
@@ -90,14 +97,25 @@ class Coordinator:
         
         # Clarification prompt
         self.clarify_prompt = ChatPromptTemplate.from_template(
-            """You are the Coordinator for OpenMetaMind. The user's query needs clarification.
+            """You are the Coordinator for OpenMetaMind, an autonomous multi-agent swarm for OpenMetadata data governance.
+            
+            Your role is to clarify ambiguous user queries while guiding them toward actionable tasks.
+            You have access to specialized agents that can:
+            - Catalog Scout: List tables, databases, schemas, search entities, get entity details
+            - Data Steward: Handle PII detection, tag assignment, ownership management
+            - Quality Guardian: Profile data quality, detect anomalies, check freshness
             
             User query: {user_query}
             
             Conversation history:
             {conversation_history}
             
-            Ask a clear, specific question to gather the information needed to proceed.
+            When asking for clarification:
+            1. Acknowledge what the user is trying to accomplish
+            2. Ask the minimum question needed to proceed
+            3. Suggest OpenMetadata-specific options when relevant
+            
+            Ask a clear, specific question that helps the user achieve their data governance goal.
             """
         )
         
