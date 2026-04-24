@@ -98,6 +98,7 @@ class OpenMetadataMCPClient:
         return {
             "Authorization": f"Bearer {self.jwt_token}",
             "Content-Type": "application/json",
+            "Accept": "application/json",
         }
 
     def _build_json_rpc_payload(
@@ -193,113 +194,295 @@ class OpenMetadataMCPClient:
             logger.error(f"Failed to decode JSON response from MCP tool {tool_name}: {str(e)}")
             raise
 
-    # MCP Tool Methods
+    # MCP Tool Methods - Using actual OpenMetadata MCP server tool names
     
-    async def list_entities(
+    async def search_metadata(
         self, 
-        entity_type: str, 
-        database: Optional[str] = None
-    ) -> List[Entity]:
+        query: str,
+        entity_type: Optional[str] = None,
+        size: int = 10
+    ) -> Dict[str, Any]:
         """
-        List entities of a given type from OpenMetadata.
+        Keyword-based search for data assets in OpenMetadata.
         
         Args:
-            entity_type: Type of entity (e.g., 'table', 'database')
-            database: Optional database name to filter by
+            query: Natural language search query
+            entity_type: Filter by entity type (e.g., 'table', 'dashboard')
+            size: Number of results to return
             
         Returns:
-            List of Entity objects
+            Search results with entities
         """
-        arguments = {"entityType": entity_type}
-        if database:
-            arguments["database"] = database
+        arguments = {"query": query, "size": size}
+        if entity_type:
+            arguments["entityType"] = entity_type
             
-        result = await self._call_mcp_tool("list_entities", arguments)
-        # Assuming the result is a list of entities
-        return [Entity(**entity) for entity in result.get("entities", [])]
+        return await self._call_mcp_tool("search_metadata", arguments)
 
-    async def get_table_profile(self, fqn: str) -> TableProfile:
+    async def semantic_search(
+        self, 
+        query: str,
+        size: int = 10
+    ) -> Dict[str, Any]:
         """
-        Get profile data for a table.
+        Meaning-based discovery using vector embeddings.
         
         Args:
+            query: Natural language query describing what you're looking for
+            size: Number of results to return
+            
+        Returns:
+            Semantic search results
+        """
+        return await self._call_mcp_tool("semantic_search", {"query": query, "size": size})
+
+    async def get_entity_details(
+        self,
+        entity_type: str,
+        fqn: str
+    ) -> Dict[str, Any]:
+        """
+        Get detailed information about a specific entity.
+        
+        Args:
+            entity_type: Type of entity (e.g., 'table', 'dashboard')
+            fqn: Fully qualified name of the entity
+            
+        Returns:
+            Entity details
+        """
+        return await self._call_mcp_tool("get_entity_details", {
+            "entityType": entity_type,
+            "fqn": fqn
+        })
+
+    async def patch_entity(
+        self,
+        entity_type: str,
+        fqn: str,
+        patch: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Patch an entity using JSONPatch operations.
+        
+        Args:
+            entity_type: Type of entity to patch
+            fqn: Fully qualified name of the entity
+            patch: JSONPatch operations
+            
+        Returns:
+            Patched entity result
+        """
+        return await self._call_mcp_tool("patch_entity", {
+            "entityType": entity_type,
+            "fqn": fqn,
+            "patch": json.dumps(patch)
+        })
+
+    async def get_entity_lineage(
+        self,
+        entity_type: str,
+        fqn: str,
+        upstream_depth: int = 3,
+        downstream_depth: int = 3
+    ) -> Dict[str, Any]:
+        """
+        Get lineage information for an entity.
+        
+        Args:
+            entity_type: Type of entity
+            fqn: Fully qualified name of the entity
+            upstream_depth: Number of upstream hops
+            downstream_depth: Number of downstream hops
+            
+        Returns:
+            Lineage information
+        """
+        return await self._call_mcp_tool("get_entity_lineage", {
+            "entityType": entity_type,
+            "fqn": fqn,
+            "upstreamDepth": upstream_depth,
+            "downstreamDepth": downstream_depth
+        })
+
+    async def create_glossary(
+        self,
+        name: str,
+        description: str,
+        mutually_exclusive: bool = False,
+        owners: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Create a new glossary.
+        
+        Args:
+            name: Name of the glossary
+            description: Description
+            mutually_exclusive: Whether terms are mutually exclusive
+            owners: List of owners
+            
+        Returns:
+            Created glossary result
+        """
+        arguments = {
+            "name": name,
+            "description": description,
+            "mutuallyExclusive": mutually_exclusive
+        }
+        if owners:
+            arguments["owners"] = owners
+            
+        return await self._call_mcp_tool("create_glossary", arguments)
+
+    async def create_glossary_term(
+        self,
+        glossary: str,
+        name: str,
+        description: str,
+        parent_term: Optional[str] = None,
+        owners: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Create a new glossary term.
+        
+        Args:
+            glossary: Glossary name
+            name: Term name
+            description: Term description
+            parent_term: Optional parent term
+            owners: List of owners
+            
+        Returns:
+            Created term result
+        """
+        arguments = {
+            "glossary": glossary,
+            "name": name,
+            "description": description
+        }
+        if parent_term:
+            arguments["parentTerm"] = parent_term
+        if owners:
+            arguments["owners"] = owners
+            
+        return await self._call_mcp_tool("create_glossary_term", arguments)
+
+    async def create_test_case(
+        self,
+        name: str,
+        fqn: str,
+        test_definition_name: str,
+        parameter_values: List[Dict[str, str]],
+        entity_type: str = "table",
+        column_name: Optional[str] = None,
+        description: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Create a test case for a table or column.
+        
+        Args:
+            name: Name of the test case
             fqn: Fully qualified name of the table
+            test_definition_name: Fully qualified name of the test definition
+            parameter_values: Parameter values for the test
+            entity_type: Type of entity (default: 'table')
+            column_name: Column name for column-level tests
+            description: Test case description
             
         Returns:
-            TableProfile object
+            Created test case result
         """
-        result = await self._call_mcp_tool("get_table_profile", {"fqn": fqn})
-        return TableProfile(**result)
+        arguments = {
+            "name": name,
+            "fqn": fqn,
+            "testDefinitionName": test_definition_name,
+            "parameterValues": parameter_values,
+            "entityType": entity_type
+        }
+        if column_name:
+            arguments["columnName"] = column_name
+        if description:
+            arguments["description"] = description
+            
+        return await self._call_mcp_tool("create_test_case", arguments)
 
-    async def get_column_profile(self, fqn: str) -> ColumnProfile:
+    async def get_test_definitions(
+        self,
+        entity_type: str = "TABLE",
+        limit: int = 10
+    ) -> Dict[str, Any]:
         """
-        Get profile data for a column.
+        Get all test definitions.
         
         Args:
-            fqn: Fully qualified name of the column
+            entity_type: Entity type ('TABLE' or 'COLUMN')
+            limit: Maximum number of results
             
         Returns:
-            ColumnProfile object
+            Test definitions
         """
-        result = await self._call_mcp_tool("get_column_profile", {"fqn": fqn})
-        return ColumnProfile(**result)
+        return await self._call_mcp_tool("get_test_definitions", {
+            "entityType": entity_type,
+            "limit": limit
+        })
 
-    async def get_usage_stats(
-        self, 
-        fqn: str, 
-        days: int = 30
-    ) -> UsageStats:
+    async def create_metric(
+        self,
+        name: str,
+        description: str,
+        metric_expression_language: str,
+        metric_expression_code: str,
+        metric_type: str = "COUNT",
+        owners: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         """
-        Get usage statistics for an entity.
+        Create a new metric.
+        
+        Args:
+            name: Name of the metric
+            description: Description in Markdown format
+            metric_expression_language: Language (SQL, Python, Java, JavaScript, External)
+            metric_expression_code: The code or query
+            metric_type: Type of metric
+            owners: List of owners
+            
+        Returns:
+            Created metric result
+        """
+        arguments = {
+            "name": name,
+            "description": description,
+            "metricExpressionLanguage": metric_expression_language,
+            "metricExpressionCode": metric_expression_code,
+            "metricType": metric_type
+        }
+        if owners:
+            arguments["owners"] = owners
+            
+        return await self._call_mcp_tool("create_metric", arguments)
+
+    async def root_cause_analysis(
+        self,
+        fqn: str,
+        entity_type: str,
+        upstream_depth: int = 3,
+        downstream_depth: int = 3
+    ) -> Dict[str, Any]:
+        """
+        Perform root cause analysis via data quality lineage.
         
         Args:
             fqn: Fully qualified name of the entity
-            days: Number of days to look back (default: 30)
+            entity_type: Type of entity
+            upstream_depth: Upstream hops
+            downstream_depth: Downstream hops
             
         Returns:
-            UsageStats object
+            Root cause analysis results
         """
-        result = await self._call_mcp_tool("get_usage_stats", {"fqn": fqn, "days": days})
-        return UsageStats(**result)
-
-    async def add_tags(self, fqn: str, tags: List[str]) -> bool:
-        """
-        Add tags to an entity.
-        
-        Args:
-            fqn: Fully qualified name of the entity
-            tags: List of tag names to add
-            
-        Returns:
-            True if successful
-        """
-        result = await self._call_mcp_tool("add_tags", {"fqn": fqn, "tags": tags})
-        return bool(result)
-
-    async def update_owner(self, fqn: str, owner: str) -> bool:
-        """
-        Update the owner of an entity.
-        
-        Args:
-            fqn: Fully qualified name of the entity
-            owner: New owner (user or team name)
-            
-        Returns:
-            True if successful
-        """
-        result = await self._call_mcp_tool("update_owner", {"fqn": fqn, "owner": owner})
-        return bool(result)
-
-    async def update_description(self, fqn: str, description: str) -> bool:
-        """
-        Update the description of an entity.
-        
-        Args:
-            fqn: Fully qualified name of the entity
-            description: New description
-            
-        Returns:
-            True if successful
-        """
-        result = await self._call_mcp_tool("update_description", {"fqn": fqn, "description": description})
-        return bool(result)
+        return await self._call_mcp_tool("root_cause_analysis", {
+            "fqn": fqn,
+            "entityType": entity_type,
+            "upstreamDepth": upstream_depth,
+            "downstreamDepth": downstream_depth
+        })

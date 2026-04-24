@@ -116,15 +116,16 @@ class TestDispatcher:
         return Dispatcher()
 
     def test_dispatcher_returns_empty_for_no_plan(self, dispatcher, sample_swarm_state):
-        """Test that dispatcher returns empty list when no plan exists."""
+        """Test that dispatcher returns empty Command when no plan exists."""
         sample_swarm_state["execution_plan"] = None
         
         result = dispatcher(sample_swarm_state)
         
-        assert result == []
+        # Command goes to integrity_critic when no plan
+        assert result.goto == "integrity_critic"
 
     def test_dispatcher_returns_sends_for_ready_subtasks(self, dispatcher, sample_swarm_state):
-        """Test that dispatcher returns Send objects for ready subtasks."""
+        """Test that dispatcher returns Command with Send objects for ready subtasks."""
         from src.models.plan import Subtask, ExecutionPlan
         
         sample_swarm_state["execution_plan"] = ExecutionPlan(
@@ -146,9 +147,11 @@ class TestDispatcher:
         
         result = dispatcher(sample_swarm_state)
         
-        assert len(result) > 0
+        # Result is a Command with Send objects in goto
+        sends = result.goto
+        assert len(sends) > 0
         # Check that Send objects have correct structure
-        for send in result:
+        for send in sends:
             assert hasattr(send, 'node')
             assert send.node == "agent_executor"
             assert hasattr(send, 'arg')
@@ -187,8 +190,9 @@ class TestDispatcher:
         result = dispatcher(sample_swarm_state)
         
         # Only task1 should be ready (no dependencies)
-        assert len(result) == 1
-        assert result[0].arg["subtask_id"] == "task1"
+        sends = result.goto
+        assert len(sends) == 1
+        assert sends[0].arg["subtask_id"] == "task1"
 
     def test_dispatcher_skips_completed_tasks(self, dispatcher, sample_swarm_state):
         """Test that dispatcher skips already completed tasks."""
@@ -213,8 +217,8 @@ class TestDispatcher:
         
         result = dispatcher(sample_swarm_state)
         
-        # task1 should be skipped
-        assert len(result) == 0
+        # task1 should be skipped - dispatcher goes to integrity_critic
+        assert result.goto == "integrity_critic"
 
 
 class TestSwarmGraph:

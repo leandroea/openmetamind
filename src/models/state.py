@@ -156,8 +156,8 @@ SwarmState = TypedDict(
     {
         "blackboard": BlackboardState,
         "execution_plan": Optional[Dict[str, Any]],  # Will be ExecutionPlan model
-        "completed_subtasks": List[str],
-        "current_parallel_group": List[str],
+        "completed_subtasks": Annotated[List[str], operator.add],  # Accumulates from parallel branches
+        "current_parallel_group": Annotated[List[str], operator.add],  # Accumulates from parallel branches
         "user_query": str,
         "user_input": str,  # Keeping for backward compatibility
         "coordinator_notes": Optional[str],
@@ -167,6 +167,6 @@ SwarmState = TypedDict(
         "critic_review": Optional[Dict[str, Any]],
         "approved_actions": List[Dict[str, Any]],
         "execution_results": Optional[Dict[str, Any]],
-        "executed_actions": List[str],  # List of action hashes that have been executed (for idempotency)
+        "executed_actions": Annotated[List[str], operator.add],  # Accumulates from parallel branches
     },
 )

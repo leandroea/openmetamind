@@ -8,7 +8,7 @@ with proper edges and routing logic.
 from typing import Literal
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.types import Send
+from langgraph.types import Send, Command
 import os
 
 from ..models.state import SwarmState
@@ -57,19 +57,18 @@ def build_swarm_graph(checkpointer=None):
     # Planner always goes to dispatcher
     workflow.add_edge("planner", "dispatcher")
     
-    # Dispatcher uses Send API for parallel execution - connect to agent_executor
-    # The dispatcher returns Send objects that LangGraph executes automatically
-    workflow.add_edge("dispatcher", "agent_executor")
+    # Dispatcher uses Send API for parallel execution
+    # When dispatcher returns Command(goto=[Send(...)]), the Send triggers agent_executor
+    # After Send completes, dispatcher runs again and routes based on pending tasks
+    # No direct edge from dispatcher to agent_executor - use Send API instead
     
-    # Agent executor routes to integrity_critic after execution
-    # We need to wait for all parallel agents to complete before going to critic
-    # This is handled by checking if all planned subtasks are completed
+    # Agent executor routes based on completion status
     workflow.add_conditional_edges(
         "agent_executor",
-        lambda state: _should_go_to_critic(state),
+        lambda state: _should_go_to_dispatcher(state),
         {
-            "integrity_critic": "integrity_critic",
-            "agent_executor": "agent_executor"  # Continue if not all done
+            "dispatcher": "dispatcher",  # Go back to dispatcher to check for more tasks
+            "integrity_critic": "integrity_critic"  # No more tasks, go to critic
         }
     )
     
@@ -89,6 +88,43 @@ def build_swarm_graph(checkpointer=None):
     
     # Compile the workflow
     return workflow.compile(checkpointer=checkpointer)
+
+
+def _should_go_to_dispatcher(state: SwarmState) -> Literal["dispatcher", "integrity_critic"]:
+    """
+    Determine if there are more pending tasks and we should go back to dispatcher.
+    
+    Args:
+        state: Current swarm state
+        
+    Returns:
+        "dispatcher" if there are more pending tasks, "integrity_critic" otherwise
+    """
+    from ..models.plan import ExecutionPlan
+    
+    execution_plan = state.get("execution_plan")
+    completed_subtasks = set(state.get("completed_subtasks", []))
+    
+    if not execution_plan:
+        # No plan, go to critic
+        return "integrity_critic"
+    
+    # Convert dict to ExecutionPlan if needed
+    if isinstance(execution_plan, dict):
+        plan = ExecutionPlan(**execution_plan)
+    else:
+        plan = execution_plan
+    
+    # Check if any subtasks are still pending
+    for subtask in plan.subtasks:
+        if subtask.subtask_id not in completed_subtasks:
+            # Check if all dependencies are satisfied
+            if all(dep in completed_subtasks for dep in subtask.dependencies):
+                # Found a pending task, go back to dispatcher
+                return "dispatcher"
+    
+    # No pending tasks, go to critic
+    return "integrity_critic"
 
 
 def _should_go_to_critic(state: SwarmState) -> Literal["integrity_critic", "agent_executor"]:

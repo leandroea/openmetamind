@@ -126,6 +126,19 @@ def agent_executor_node(state: SwarmState) -> Dict[str, Any]:
     LangGraph expects synchronous nodes, so we run the async executor in an event loop.
     The Send API passes the payload as the state to this function.
     """
+    # Validate that we have the required fields
+    subtask_id = state.get("subtask_id")
+    agent_id = state.get("agent_id")
+    
+    if not subtask_id or not agent_id:
+        logger.warning(f"Agent executor called with missing fields: subtask_id={subtask_id}, agent_id={agent_id}. Skipping.")
+        # Return empty updates - no state changes
+        return {
+            "findings": [],
+            "agent_statuses": {},
+            "completed_subtasks": []
+        }
+    
     # Create a new event loop for this execution
     # In a production setting, you might want to reuse loops or use async nodes
     loop = asyncio.new_event_loop()
@@ -136,8 +149,8 @@ def agent_executor_node(state: SwarmState) -> Dict[str, Any]:
         result = loop.run_until_complete(
             AgentExecutor()(
                 {
-                    "subtask_id": state.get("subtask_id"),
-                    "agent_id": state.get("agent_id"),
+                    "subtask_id": subtask_id,
+                    "agent_id": agent_id,
                     "task": state.get("task", ""),
                     "inputs": state.get("inputs", {})
                 }

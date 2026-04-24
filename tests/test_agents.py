@@ -37,8 +37,8 @@ class TestCatalogScout:
     @pytest.mark.asyncio
     async def test_execute_returns_finding(self, agent, mock_mcp_client):
         """Test that execute returns a valid AgentFinding."""
-        mock_mcp_client.list_entities = AsyncMock(return_value=[])
-        
+        mock_mcp_client.search_metadata = AsyncMock(return_value={"results": []})
+    
         finding = await agent.execute(
             task="list tables",
             inputs={},
@@ -55,18 +55,18 @@ class TestCatalogScout:
     async def test_execute_with_entities(self, agent, mock_mcp_client):
         """Test execute with mock entity data."""
         mock_entities = [
-            MagicMock(
-                name="users",
-                fullyQualifiedName="customers.users",
-                description="User table"
-            ),
-            MagicMock(
-                name="orders",
-                fullyQualifiedName="customers.orders",
-                description="Orders table"
-            )
+            {
+                "name": "users",
+                "fullyQualifiedName": "customers.users",
+                "description": "User table"
+            },
+            {
+                "name": "orders",
+                "fullyQualifiedName": "customers.orders",
+                "description": "Orders table"
+            }
         ]
-        mock_mcp_client.list_entities = AsyncMock(return_value=mock_entities)
+        mock_mcp_client.search_metadata = AsyncMock(return_value={"results": mock_entities})
         mock_mcp_client.__aenter__ = AsyncMock(return_value=mock_mcp_client)
         mock_mcp_client.__aexit__ = AsyncMock(return_value=None)
         

@@ -96,24 +96,31 @@ class CatalogScout(SwarmAgent):
             database = inputs["database"]
         
         try:
-            # Use the MCP client to list entities
+            # Use the MCP client to search for entities using keyword search
             async with mcp_client as client:
-                entities = await client.list_entities(entity_type=entity_type, database=database)
+                # Build query from task description
+                query = task
+                search_result = await client.search_metadata(
+                    query=query,
+                    entity_type=entity_type,
+                    size=20
+                )
+                
+                # Extract entities from search results
+                entities = search_result.get("results", [])
                 
                 # Create summary
-                summary = f"Found {len(entities)} {entity_type}(s)"
-                if database:
-                    summary += f" in database '{database}'"
+                summary = f"Found {len(entities)} {entity_type}(s) matching query"
                 
                 # Create details
                 details = {
                     "entity_type": entity_type,
-                    "database": database,
+                    "query": query,
                     "entities": [
                         {
-                            "name": entity.name,
-                            "fullyQualifiedName": entity.fullyQualifiedName,
-                            "description": entity.description
+                            "name": entity.get("name"),
+                            "fullyQualifiedName": entity.get("fullyQualifiedName"),
+                            "description": entity.get("description")
                         }
                         for entity in entities[:10]  # Limit to first 10 for brevity
                     ],
@@ -132,7 +139,7 @@ class CatalogScout(SwarmAgent):
                     confidence=0.95,  # High confidence in discovery results
                     proposed_actions=[],  # Discovery doesn't propose actions directly
                     mcp_tool_calls=[],  # Would be populated by the MCP client internally
-                    llm_reasoning=f"The Catalog Scout discovered {len(entities)} {entity_type}(s) by querying the OpenMetadata MCP server."
+                    llm_reasoning=f"The Catalog Scout discovered {len(entities)} {entity_type}(s) by querying the OpenMetadata MCP server using search_metadata."
                 )
                 
                 return finding

@@ -29,7 +29,10 @@ def mock_mcp_client():
     """Create a mocked MCP client for unit tests."""
     mock_client = AsyncMock(spec=OpenMetadataMCPClient)
     
-    # Mock list_entities
+    # Mock search_metadata (used by catalog_scout)
+    mock_client.search_metadata = AsyncMock(return_value={"results": []})
+    
+    # Mock list_entities (legacy)
     mock_client.list_entities = AsyncMock(return_value=[])
     
     # Mock get_table_profile
@@ -57,6 +60,10 @@ def mock_mcp_client():
     mock_client.add_tags = AsyncMock(return_value=True)
     mock_client.update_owner = AsyncMock(return_value=True)
     mock_client.update_description = AsyncMock(return_value=True)
+    
+    # Setup async context manager - __aenter__ should return the client itself
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
     
     return mock_client
 
