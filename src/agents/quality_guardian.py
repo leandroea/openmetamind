@@ -78,6 +78,8 @@ class QualityGuardian(SwarmAgent):
         Returns:
             AgentFinding containing quality metrics and proposed actions
         """
+        logger.info(f"[QualityGuardian] Executing task: {task}")
+        
         # Get MCP client if not provided
         if mcp_client is None:
             mcp_client = get_mcp_client()

@@ -154,6 +154,8 @@ class CatalogScout(SwarmAgent):
         Returns:
             AgentFinding containing discovered entities
         """
+        logger.info(f"[CatalogScout] Executing task: {task}")
+        
         # Get MCP client if not provided
         if mcp_client is None:
             mcp_client = get_mcp_client()

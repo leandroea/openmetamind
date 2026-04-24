@@ -113,6 +113,8 @@ class DataSteward(SwarmAgent):
         Returns:
             AgentFinding containing classification results and proposed actions
         """
+        logger.info(f"[DataSteward] Executing task: {task}")
+        
         # Get MCP client if not provided
         if mcp_client is None:
             mcp_client = get_mcp_client()

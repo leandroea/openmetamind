@@ -284,6 +284,8 @@ Respond with ONLY the description text, no preamble or formatting. Be concise an
         Returns:
             AgentFinding with proposed description actions
         """
+        logger.info(f"[DocumentationAgent] Executing task: {task}")
+        
         if mcp_client is None:
             mcp_client = get_mcp_client()
         
