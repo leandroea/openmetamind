@@ -95,20 +95,52 @@ class SwarmRunner:
         if coordinator_response is None and findings:
             if isinstance(findings, list) and len(findings) > 0:
                 summary_parts = []
-                for f in findings[:5]:
+                entity_names = []  # Collect entity names from discovery findings
+                
+                for f in findings[:10]:  # Check more findings for entity data
                     if isinstance(f, dict):
                         summary = f.get("summary", "")
+                        details = f.get("details", {})
+                        # Check if this is a discovery finding with entities
+                        if details and isinstance(details, dict):
+                            entities = details.get("entities", [])
+                            if entities and isinstance(entities, list):
+                                for entity in entities[:50]:  # Limit to first 50 names
+                                    name = entity.get("name") or entity.get("fullyQualifiedName") or "Unknown"
+                                    entity_names.append(name)
                         if summary:
                             summary_parts.append(summary)
                     else:
                         summary = getattr(f, 'summary', '')
+                        details = getattr(f, 'details', {})
+                        # Check if this is a discovery finding with entities
+                        if details and isinstance(details, dict):
+                            entities = details.get("entities", [])
+                            if entities and isinstance(entities, list):
+                                for entity in entities[:50]:  # Limit to first 50 names
+                                    name = entity.get("name") or entity.get("fullyQualifiedName") or "Unknown"
+                                    entity_names.append(name)
                         if summary:
                             summary_parts.append(summary)
                 
-                if summary_parts:
-                    coordinator_response = "I found the following information:\n\n" + "\n".join(f"- {s}" for s in summary_parts)
-                    if len(findings) > 5:
-                        coordinator_response += f"\n\n...and {len(findings) - 5} more findings."
+                if summary_parts or entity_names:
+                    response_parts = ["I found the following information:"]
+                    
+                    # Add entity names if we have them
+                    if entity_names:
+                        response_parts.append("\n**Table names:**")
+                        for name in entity_names[:30]:  # Show first 30 tables
+                            response_parts.append(f"- {name}")
+                        if len(entity_names) > 30:
+                            response_parts.append(f"- ... and {len(entity_names) - 30} more tables")
+                    
+                    # Add summary parts
+                    for s in summary_parts[:5]:
+                        response_parts.append(f"\n{s}")
+                    
+                    coordinator_response = "\n".join(response_parts)
+                    if len(findings) > 10:
+                        coordinator_response += f"\n\n...and {len(findings) - 10} more findings."
                 else:
                     coordinator_response = f"The swarm completed analysis with {len(findings)} finding(s). Check the findings panel for details."
             else:
