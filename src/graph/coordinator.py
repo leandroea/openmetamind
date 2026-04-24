@@ -12,11 +12,24 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 import os
 import logging
+import re
 
 from ..models.state import SwarmState
 from ..agents.registry import get_agent_registry
 
 logger = logging.getLogger(__name__)
+
+# Intent detection keywords - self_identity checked FIRST to avoid misrouting
+SELF_IDENTITY_KEYWORDS = [
+    "who are you", "your name", "introduce yourself", "what are you",
+    "who is this", "what is this", "about you", "your role", "yourself"
+]
+
+TEAM_ROSTER_KEYWORDS = [
+    "your agents", "your team", "list agents", "describe agents",
+    "capabilities", "swarm members", "what agents", "which agents",
+    "list your agents", "describe your team", "show your agents"
+]
 
 
 class Coordinator:
@@ -28,6 +41,11 @@ class Coordinator:
     - Classify user intent
     - Decide whether to answer directly, delegate to swarm, or ask clarifying questions
     """
+
+    SELF_DESCRIPTION = (
+        "I am the OpenMetaMind Coordinator. I interpret your requests, decide whether "
+        "to answer directly or deploy the agent swarm, and synthesize results back to you."
+    )
 
     def __init__(self):
         """Initialize the Coordinator with MiniMax LLM."""
@@ -64,12 +82,16 @@ class Coordinator:
             3. "delegate_full_swarm": The user is asking a complex governance task that requires 
                multiple agents working together (e.g., "audit the customers database and fix governance gaps").
                
-            4. "system_introspection": The user is asking about the swarm itself — its agents, capabilities,
-               or how it works. NOT a task for the swarm to execute.
-               Examples: "what agents do you have", "describe your team", "what can you do", 
-               "list your capabilities", "who are you", "how do you work"
+            4. "self_identity": The user is asking about the coordinator itself — who it is, its name, role,
+               or purpose. NOT about the swarm or its agents.
+               Examples: "who are you", "what is your name", "introduce yourself", "what do you do"
                
-            5. "clarify": ONLY clarify if the query is genuinely ambiguous with no actionable path.
+            5. "team_roster": The user is asking about the swarm's agents — their names, capabilities,
+               or team composition. NOT about the coordinator.
+               Examples: "what agents do you have", "describe your team", "list capabilities",
+               "show your agents", "swarm members"
+               
+            6. "clarify": ONLY clarify if the query is genuinely ambiguous with no actionable path.
                Example: "show me stuff" - but even "list all tables" is actionable!
                DO NOT clarify queries that reference OpenMetadata entities - delegate them!
             
@@ -80,7 +102,7 @@ class Coordinator:
             
             Respond with a JSON object containing:
             {{
-                "intent": "answer_directly" | "delegate_lightweight" | "delegate_full_swarm" | "system_introspection" | "clarify",
+                "intent": "answer_directly" | "delegate_lightweight" | "delegate_full_swarm" | "self_identity" | "team_roster" | "clarify",
                 "reasoning": "brief explanation of your decision",
                 "suggested_clarification": "if intent is clarify, what question to ask the user"
             }}
@@ -175,7 +197,54 @@ class Coordinator:
             "conversation_history": conversation_history + [HumanMessage(content=user_query)]
         }
         
-        if intent == "answer_directly":
+        # Keyword-based detection for self_identity and team_roster (checked FIRST before LLM)
+        # This ensures correct classification when keywords overlap (e.g., "you" appears in both)
+        query_lower = user_query.lower()
+        
+        # Check self_identity keywords first - these are more specific
+        if any(kw in query_lower for kw in SELF_IDENTITY_KEYWORDS):
+            intent = "self_identity"
+        # Check team_roster keywords only if self_identity didn't match
+        elif any(kw in query_lower for kw in TEAM_ROSTER_KEYWORDS):
+            intent = "team_roster"
+        # Handle ambiguous queries that could be either (e.g., "what can you do")
+        elif "what can you" in query_lower and ("do" in query_lower or "help" in query_lower):
+            # Ambiguous - provide combined response
+            registry = get_agent_registry()
+            roster = registry.format_roster()
+            combined = (
+                f"{self.SELF_DESCRIPTION}\n\n"
+                f"My team includes the Catalog Scout, Data Steward, Quality Guardian, and others. "
+                f"Here is my full team:\n\n{roster}\n\n"
+                f"💡 Ask me to 'list my agents' if you'd like details on each."
+            )
+            updates["coordinator_response"] = combined
+            updates["next"] = "end"
+            updates["conversation_history"] = updates["conversation_history"] + [
+                AIMessage(content=combined)
+            ]
+            return updates
+        
+        if intent == "self_identity":
+            # Return static self description - no registry query needed
+            updates["coordinator_response"] = self.SELF_DESCRIPTION
+            updates["next"] = "end"
+            updates["conversation_history"] = updates["conversation_history"] + [
+                AIMessage(content=self.SELF_DESCRIPTION)
+            ]
+        
+        elif intent == "team_roster":
+            # Query registry and format team roster
+            registry = get_agent_registry()
+            roster = registry.format_roster()
+            
+            updates["coordinator_response"] = roster
+            updates["next"] = "end"
+            updates["conversation_history"] = updates["conversation_history"] + [
+                AIMessage(content=roster)
+            ]
+        
+        elif intent == "answer_directly":
             # Generate direct answer
             try:
                 answer = self.answer_chain.invoke({
@@ -188,20 +257,6 @@ class Coordinator:
             
             # Route to END (handled by returning special value in LangGraph)
             updates["next"] = "end"
-        
-        elif intent == "system_introspection":
-            # Short-circuit: query registry directly and format response
-            # No swarm delegation, no planner, no supervisor
-            registry = get_agent_registry()
-            roster = registry.format_roster()
-            
-            updates["coordinator_response"] = roster
-            updates["next"] = "end"
-            
-            # Add to conversation for transparency
-            updates["conversation_history"] = updates["conversation_history"] + [
-                AIMessage(content=roster)
-            ]
         
         elif intent == "clarify":
             # Generate clarification question
