@@ -262,7 +262,7 @@ class OpenMetadataMCPClient:
         page_size = 50  # Fetch 50 at a time
         
         while len(all_entities) < max_results:
-            arguments = {"query": query, "size": page_size}
+            arguments = {"query": query, "size": page_size, "from": current_offset}
             if entity_type:
                 arguments["entityType"] = entity_type
             
