@@ -154,49 +154,21 @@ class Planner:
         
         # Task decomposition prompt
         self.decomposition_prompt = ChatPromptTemplate.from_template(
-            """You are the Planner for OpenMetaMind, an autonomous multi-agent swarm for OpenMetadata data governance.
-            
-            Your task is to decompose a user request into subtasks that can be executed by specialized agents.
-            
-            User request: {user_request}
-            
-            Available agents and their capabilities:
-            {agent_capabilities}
-            
-            Decompose the request into subtasks. For each subtask, specify:
-            1. subtask_id: Unique identifier (e.g., "discover_tables", "analyze_quality")
-            2. agent_id: ID of the agent that should execute this subtask
-            3. task_description: Natural language description of the subtask
-            4. required_inputs: Keys from blackboard needed as inputs (e.g., ["table_list"])
-            5. produces_output: Key that will be written to blackboard upon completion (e.g., "discovered_tables")
-            6. dependencies: List of subtask_ids that must complete before this subtask can start
-            7. max_retries: Maximum number of retry attempts (default: 2)
-            8. timeout_seconds: Timeout in seconds for execution (default: 60)
-            
-            Note: Agents execute sequentially via the Supervisor pattern. Use the dependencies field to define ordering, not parallel_groups.
-            
-            Respond with a JSON object containing:
-            {{
-                "subtasks": [
-                    {{
-                        "subtask_id": "string",
-                        "agent_id": "string",
-                        "task_description": "string",
-                        "required_inputs": ["string"],
-                        "produces_output": "string",
-                        "dependencies": ["string"],
-                        "max_retries": 2,
-                        "timeout_seconds": 60
-                    }}
-                ],
-                "estimated_duration": "string (e.g., '45.2s')"
-            }}
-            
-            For now, use a simple heuristic decomposition:
-            1. Discovery agents (catalog_scout) first to find entities
-            2. Analysis agents (data_steward, quality_guardian) second to analyze findings
-            3. Integrity critic last to validate results
-            """
+            """Decompose this task into subtasks. Output ONLY valid JSON in this exact format:
+
+{"subtasks": [{"subtask_id": "...", "agent_id": "...", "task_description": "...", "required_inputs": [], "produces_output": "...", "dependencies": [], "max_retries": 2, "timeout_seconds": 60}]}
+
+No markdown, no explanation, no thinking tags.
+
+User request: {user_request}
+
+Available agents:
+{agent_capabilities}
+
+Examples:
+- Task: "Find all tables missing descriptions" -> catalog_scout first, then documentation_agent
+- Task: "Check data quality for customer_orders" -> catalog_scout first to find the table, then quality_guardian
+"""
         )
         
         # Set up chain with custom parser that handles MiniMax thinking tags
@@ -220,13 +192,10 @@ class Planner:
         agents = registry.list_agents()
         logger.info(f"Planner: Found {len(agents)} agents")
         
-        # Format agent capabilities for the prompt
+        # Format agent capabilities for the prompt - just ID, name, one-line description
         agent_capabilities_str = ""
         for agent in agents:
-            agent_capabilities_str += f"- {agent.display_name} ({agent.agent_id}): {agent.description}\n"
-            if agent.capabilities:
-                cap_names = [cap.name for cap in agent.capabilities]
-                agent_capabilities_str += f"  Capabilities: {', '.join(cap_names)}\n"
+            agent_capabilities_str += f"- {agent.agent_id}: {agent.description}\n"
         
         logger.info(f"Planner: Invoking decomposition chain for task: {delegated_task[:50]}...")
         
