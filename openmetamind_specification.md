@@ -169,47 +169,57 @@ class Subtask(BaseModel):
 class ExecutionPlan(BaseModel):
     subtasks: List[Subtask]
     estimated_duration: str
-    parallel_groups: List[List[str]]  # Which subtasks run in parallel
 ```
+
+**Important:** The Planner generates a task list but agents execute **sequentially** via the Supervisor pattern, not in parallel. The `parallel_groups` field is deprecated - use `dependencies` to define ordering.
 
 **Example Decomposition:**
 
 User: "Audit the customers database and fix governance gaps"
 
+The Planner decomposes this into a task list with dependencies:
+
 ```yaml
 plan:
-  parallel_group_1:
-    - agent: catalog_scout
+  subtasks:
+    - id: discover_tables
+      agent: catalog_scout
       task: "List all tables in customers database"
       produces: table_list
+      dependencies: []
       
-    - agent: data_steward  
+    - id: check_classifications
+      agent: data_steward  
       task: "Check existing tags and classifications"
       produces: current_classifications
+      dependencies: []
       
-  parallel_group_2:  # Runs after group_1
-    - agent: quality_guardian
+    - id: profile_quality
+      agent: quality_guardian
       task: "Profile all tables from table_list"
-      required_inputs: [table_list]
       produces: quality_reports
+      dependencies: [discover_tables]
       
-    - agent: policy_enforcer
+    - id: check_compliance
+      agent: policy_enforcer
       task: "Check compliance status of current_classifications"
-      required_inputs: [current_classifications]
       produces: compliance_gaps
+      dependencies: [check_classifications]
       
-  parallel_group_3:  # Runs after group_2
-    - agent: documentation_expert
+    - id: generate_docs
+      agent: documentation_expert
       task: "Generate missing descriptions for tables lacking them"
-      required_inputs: [table_list, quality_reports]
       produces: proposed_descriptions
+      dependencies: [discover_tables, profile_quality]
       
-  sequential:
-    - agent: integrity_critic
+    - id: validate_findings
+      agent: integrity_critic
       task: "Validate all findings and proposed actions"
-      required_inputs: [quality_reports, compliance_gaps, proposed_descriptions]
       produces: critic_review
+      dependencies: [profile_quality, check_compliance, generate_docs]
 ```
+
+**Execution Order:** The Supervisor iterates through tasks in dependency order (as defined by topological sort), executing one agent at a time and synthesizing results before moving to the next task.
 
 #### 3.2.3 The Dispatcher (dispatcher.py)
 
@@ -829,7 +839,7 @@ Final: 12 columns -> PII.Sensitive, 3 columns -> PII.Internal
 
 | Layer | Technology | Rationale |
 |-------|-----------|-----------|
-| Orchestration | LangGraph | Native support for parallel Send(), state management, human-in-the-loop interrupts |
+| Orchestration | LangGraph | Sequential execution via Supervisor pattern, state management, human-in-the-loop interrupts |
 | LLM Framework | LangChain | Tool binding, structured output, multiple provider support |
 | State Persistence | PostgreSQL + LangGraph PostgresSaver | Recovery from crashes, audit trails, multi-instance support |
 | Real-time Streaming | WebSocket (FastAPI) + Server-Sent Events | Live theater updates without polling |

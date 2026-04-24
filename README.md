@@ -5,7 +5,7 @@ Autonomous multi-agent swarm for OpenMetadata data governance using LangGraph.
 ## Project Structure
 
 - `src/` - Source code
-  - `graph/` - LangGraph workflow definitions (Coordinator, Planner, Dispatcher, Agent Executor, Integrity Critic, Action Executor)
+  - `graph/` - LangGraph workflow definitions (Coordinator, Planner, Dispatcher, Supervisor, Integrity Critic, Action Executor)
   - `agents/` - SwarmAgent implementations (plugin system)
   - `mcp/` - OpenMetadata MCP client wrappers
   - `ui/` - Streamlit and Slack interfaces
@@ -13,6 +13,7 @@ Autonomous multi-agent swarm for OpenMetadata data governance using LangGraph.
   - `models/` - Pydantic models and schemas
 - `tests/` - Unit and integration tests
 - `openmetamind_specification.md` - Detailed technical specification
+- `REFACTORING.md` - Documentation of the Supervisor/Manager pattern refactoring
 
 ## Setup
 
@@ -37,9 +38,9 @@ Autonomous multi-agent swarm for OpenMetadata data governance using LangGraph.
    - `LOG_LEVEL`: Logging level (e.g., INFO, DEBUG)
 
 5. Run the application:
-   - For Streamlit UI (main interface): `streamlit run src/ui/streamlit_app.py`
-   - FastAPI backend is no longer required - Streamlit calls the swarm directly
-   - For Slack bot: `python src/ui/slack_bot.py` (requires FastAPI backend)
+   - For Streamlit UI (main interface): `python -m streamlit run src/ui/streamlit_app.py`
+   - Note: FastAPI backend is no longer required - Streamlit calls the swarm directly via the Supervisor/Manager pattern
+   - For Slack bot: `python src/ui/slack_bot.py`
 
 ## Dependencies
 
@@ -68,18 +69,18 @@ python scripts/demo_data.py
 
 ## Architecture
 
-The OpenMetaMind swarm follows this flow:
+The OpenMetaMind swarm follows a sequential Supervisor/Manager pattern:
 
-1. **Coordinator** - User's single point of contact, classifies intent
-2. **Planner** - Decomposes tasks, selects agents, creates execution plan
-3. **Dispatcher** - Initializes task queue for Supervisor
-4. **Supervisor** - Executes agents sequentially (Supervisor/Manager pattern)
-5. **Integrity Critic** - Validates findings, detects conflicts, makes routing decisions
+1. **Coordinator** - User's single point of contact, classifies intent (delegate, clarify, or answer directly)
+2. **Planner** - Decomposes tasks, selects agents, creates execution plan with dependencies
+3. **Dispatcher** - Initializes task queue from Planner's execution plan
+4. **Supervisor** - Iterates through tasks sequentially, executing one agent at a time, synthesizing results
+5. **Integrity Critic** - Validates findings, detects conflicts, decides routing (retry or approve)
 6. **Action Executor** - Performs MCP write operations (only component with write permissions)
 
-**Note:** With the Supervisor/Manager pattern, agents execute sequentially (not in parallel). 
-Therefore, the Streamlit UI calls the swarm directly without going through an HTTP API.
-This simplifies deployment and removes unnecessary network overhead.
+**Execution Model:** Agents execute sequentially via the Supervisor/Manager pattern, not in parallel. 
+The Streamlit UI calls the swarm directly via `SwarmRunner` without going through an HTTP API.
+This simplifies deployment, removes network overhead, and eliminates concurrent state update conflicts.
 
 ## License
 

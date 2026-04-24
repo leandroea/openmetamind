@@ -92,17 +92,16 @@ The test suite uses `conftest.py` at the project root to load `.env` before impo
 
 ---
 
-## Step 5: Run Full Application (Optional)
+## Step 5: Run Full Application
 
-### 5.1 Start FastAPI Backend
+### 5.1 Start Streamlit UI
+The FastAPI backend is no longer required - Streamlit calls the swarm directly via `SwarmRunner`.
+
 ```cmd
-.venv\Scripts\python -m src.main
+.venv\Scripts\python -m streamlit run src/ui/streamlit_app.py
 ```
 
-### 5.2 Start Streamlit UI (in another terminal)
-```cmd
-.venv\Scripts\streamlit run src/ui/streamlit_app.py
-```
+Access the UI at `http://localhost:8501`
 
 ---
 
@@ -127,6 +126,19 @@ The following issues were discovered and fixed during the testing process:
 8. **Async context manager** in [`tests/test_agents.py`](tests/test_agents.py:69) — Added `__aenter__`/`__aexit__` mocks for the MCP client
 
 9. **Root conftest.py** — Created [`conftest.py`](conftest.py) at project root to load `.env` before test collection
+
+10. **Relative import errors** in [`src/ui/streamlit_app.py`](src/ui/streamlit_app.py:133) — Changed relative imports to absolute (`from src.ui.swarm_runner import ...`) for standalone execution via `streamlit run`
+
+11. **Coordinator clarification issue** — Updated `intent_prompt` to properly classify OpenMetadata queries as `delegate_lightweight` instead of `clarify`
+
+---
+## Architecture Notes
+
+**Supervisor/Manager Pattern:** Agents execute sequentially via the Supervisor node, not in parallel. This eliminates concurrent state update conflicts and simplifies debugging.
+
+**Direct Swarm Execution:** Streamlit calls `SwarmRunner.run()` directly without going through an HTTP API. The `SwarmRunner` is imported via `from src.ui.swarm_runner import get_swarm_runner`.
+
+**No API Between Agents:** After the refactoring, agents communicate via shared state (blackboard) rather than HTTP API calls. This simplifies deployment and improves reliability.
 
 ---
 
