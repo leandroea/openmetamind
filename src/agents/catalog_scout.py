@@ -104,6 +104,13 @@ class CatalogScout(SwarmAgent):
             if entity_word in ['table', 'tables', 'database', 'databases', 'schema', 'schemas']:
                 return "table" if "table" in entity_word else entity_word
         
+        # Extract snake_case/camelCase entity names (words with 2+ underscores)
+        # These are specific entity names like "big_data_table_with_nested_columns"
+        underscore_words = [w for w in task.split() if w.count('_') >= 2]
+        if underscore_words:
+            # Return the first underscore word as the query - it's likely a specific entity name
+            return underscore_words[0]
+        
         # If the task starts with "list" or "show" followed by nothing or just stop words,
         # it's likely a simple list request
         if task_lower.startswith('list ') or task_lower.startswith('show '):
