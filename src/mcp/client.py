@@ -179,8 +179,29 @@ class OpenMetadataMCPClient:
                 error_msg = result_data["error"].get("message", "Unknown error")
                 raise ValueError(f"MCP tool {tool_name} returned error: {error_msg}")
             
-            # Return the result
-            return result_data.get("result", {})
+            # Handle nested response format: result.content[0].text contains JSON string
+            # This is how OpenMetadata MCP server formats responses
+            raw_result = result_data.get("result", {})
+            if isinstance(raw_result, dict) and "content" in raw_result:
+                content = raw_result["content"]
+                if isinstance(content, list) and len(content) > 0:
+                    first_item = content[0]
+                    if isinstance(first_item, dict) and "text" in first_item:
+                        # Parse the JSON string inside the text field
+                        text_content = first_item["text"]
+                        try:
+                            parsed = json.loads(text_content)
+                            # Check if it's an error response embedded in text
+                            if isinstance(parsed, dict) and "statusCode" in parsed:
+                                error_msg = parsed.get("error", parsed.get("message", "Unknown error"))
+                                raise ValueError(f"MCP tool {tool_name} returned error: {error_msg}")
+                            return parsed
+                        except json.JSONDecodeError:
+                            # If it's not JSON, return the raw text
+                            return {"text": text_content}
+            
+            # Return the result directly if not in nested format
+            return raw_result if raw_result else {}
             
         except httpx.HTTPStatusError as e:
             logger.error(
@@ -485,4 +506,139 @@ class OpenMetadataMCPClient:
             "entityType": entity_type,
             "upstreamDepth": upstream_depth,
             "downstreamDepth": downstream_depth
+        })
+
+    async def get_table_profile(
+        self,
+        fqn: str
+    ) -> Dict[str, Any]:
+        """
+        Get profile/statistics for a table.
+        
+        Args:
+            fqn: Fully qualified name of the table
+            
+        Returns:
+            Table profile data including row count, size, etc.
+        """
+        return await self._call_mcp_tool("get_table_profile", {
+            "fqn": fqn
+        })
+
+    async def add_tags(
+        self,
+        fqn: str,
+        entity_type: str,
+        tags: List[str]
+    ) -> Dict[str, Any]:
+        """
+        Add tags to an entity.
+        
+        Args:
+            fqn: Fully qualified name of the entity
+            entity_type: Type of entity (e.g., 'table', 'column')
+            tags: List of tag names to add
+            
+        Returns:
+            Result of the tag operation
+        """
+        return await self._call_mcp_tool("add_tags", {
+            "fqn": fqn,
+            "entityType": entity_type,
+            "tags": tags
+        })
+
+    async def update_description(
+        self,
+        fqn: str,
+        entity_type: str,
+        description: str
+    ) -> Dict[str, Any]:
+        """
+        Update the description of an entity.
+        
+        Args:
+            fqn: Fully qualified name of the entity
+            entity_type: Type of entity (e.g., 'table', 'column')
+            description: New description text
+            
+        Returns:
+            Result of the update operation
+        """
+        return await self._call_mcp_tool("update_description", {
+            "fqn": fqn,
+            "entityType": entity_type,
+            "description": description
+        })
+
+    async def add_owner(
+        self,
+        fqn: str,
+        entity_type: str,
+        owner: str,
+        owner_type: str = "user"
+    ) -> Dict[str, Any]:
+        """
+        Add an owner to an entity.
+        
+        Args:
+            fqn: Fully qualified name of the entity
+            entity_type: Type of entity (e.g., 'table')
+            owner: Owner identifier (username or team name)
+            owner_type: Type of owner ('user' or 'team')
+            
+        Returns:
+            Result of the owner operation
+        """
+        return await self._call_mcp_tool("add_owner", {
+            "fqn": fqn,
+            "entityType": entity_type,
+            "owner": owner,
+            "ownerType": owner_type
+        })
+
+    async def remove_owner(
+        self,
+        fqn: str,
+        entity_type: str,
+        owner: str
+    ) -> Dict[str, Any]:
+        """
+        Remove an owner from an entity.
+        
+        Args:
+            fqn: Fully qualified name of the entity
+            entity_type: Type of entity (e.g., 'table')
+            owner: Owner identifier to remove
+            
+        Returns:
+            Result of the owner removal operation
+        """
+        return await self._call_mcp_tool("remove_owner", {
+            "fqn": fqn,
+            "entityType": entity_type,
+            "owner": owner
+        })
+
+    async def delete_tag(
+        self,
+        fqn: str,
+        entity_type: str,
+        tag: str
+    ) -> Dict[str, Any]:
+        """
+        Delete a tag from an entity.
+        
+        Args:
+            fqn: Fully qualified name of the entity
+            entity_type: Type of entity (e.g., 'table', 'column')
+            tag: Tag name to delete
+            
+        Returns:
+            Result of the tag deletion operation
+        """
+        return await self._call_mcp_tool("delete_tag", {
+            "fqn": fqn,
+            "entityType": entity_type,
+            "tag": tag
         })

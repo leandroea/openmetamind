@@ -59,12 +59,11 @@ See `pyproject.toml` for the full list.
 To populate OpenMetadata with demo data for testing:
 
 ```bash
-# Set environment variables
-export OPENMETADATA_JWT_TOKEN=your_token_here
-export CREATE_REAL_DATA=true  # Set to true to create real data
+# Start OpenMetadata (if not running)
+docker-compose up -d
 
-# Run the demo data script
-python scripts/demo_data.py
+# Verify MCP server is working
+python tests/test_mcp_server.py
 ```
 
 ## Architecture

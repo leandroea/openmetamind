@@ -1,9 +1,10 @@
 """
 Integration tests for OpenMetaMind graph workflow.
+
+All tests use real MCP client and MiniMax LLM connections.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from langchain_core.messages import HumanMessage, AIMessage
 
 from src.graph.coordinator import Coordinator
@@ -12,26 +13,22 @@ from src.graph.dispatcher import Dispatcher
 from src.graph.supervisor import Supervisor
 from src.graph.swarm_graph import build_swarm_graph
 from src.models.state import SwarmState
+from src.models.plan import Subtask, ExecutionPlan
 
 
 class TestCoordinator:
-    """Tests for the Coordinator node."""
+    """Tests for the Coordinator node using real MiniMax LLM."""
 
     @pytest.fixture
-    def coordinator(self, mock_llm):
-        with patch('src.graph.coordinator.ChatOpenAI', return_value=mock_llm):
-            return Coordinator()
+    def coordinator(self):
+        return Coordinator()
 
     @pytest.mark.asyncio
     async def test_coordinator_classifies_delegate_task(self, coordinator, sample_swarm_state):
         """Test that coordinator routes delegation tasks to planner."""
         sample_swarm_state["user_input"] = "List tables in customers database"
 
-        # Mock the intent chain to return a delegate intent
-        delegate_result = {"intent": "delegate_lightweight", "reasoning": "Test delegation"}
-        with patch.object(coordinator, 'intent_chain') as mock_chain:
-            mock_chain.invoke = MagicMock(return_value=delegate_result)
-            result = coordinator(sample_swarm_state)
+        result = coordinator(sample_swarm_state)
 
         assert "next" in result
         assert result["next"] == "planner"
@@ -41,11 +38,7 @@ class TestCoordinator:
         """Test that coordinator sets delegated_task for planner."""
         sample_swarm_state["user_input"] = "Audit the customers database"
 
-        # Mock the intent chain to return a delegate intent
-        delegate_result = {"intent": "delegate_full_swarm", "reasoning": "Complex task"}
-        with patch.object(coordinator, 'intent_chain') as mock_chain:
-            mock_chain.invoke = MagicMock(return_value=delegate_result)
-            result = coordinator(sample_swarm_state)
+        result = coordinator(sample_swarm_state)
 
         assert "delegated_task" in result
         assert result["delegated_task"] == "Audit the customers database"
@@ -63,12 +56,11 @@ class TestCoordinator:
 
 
 class TestPlanner:
-    """Tests for the Planner node."""
+    """Tests for the Planner node using real MiniMax LLM."""
 
     @pytest.fixture
-    def planner(self, mock_llm):
-        with patch('src.graph.planner.ChatOpenAI', return_value=mock_llm):
-            return Planner()
+    def planner(self):
+        return Planner()
 
     @pytest.mark.asyncio
     async def test_planner_creates_execution_plan(self, planner, sample_swarm_state):
@@ -128,8 +120,6 @@ class TestDispatcher:
 
     def test_dispatcher_initializes_task_queue(self, dispatcher, sample_swarm_state):
         """Test that dispatcher initializes pending_tasks for Supervisor."""
-        from src.models.plan import Subtask, ExecutionPlan
-        
         sample_swarm_state["execution_plan"] = ExecutionPlan(
             subtasks=[
                 Subtask(
@@ -166,8 +156,6 @@ class TestDispatcher:
 
     def test_dispatcher_routes_to_supervisor(self, dispatcher, sample_swarm_state):
         """Test that dispatcher always routes to supervisor when tasks exist."""
-        from src.models.plan import Subtask, ExecutionPlan
-        
         sample_swarm_state["execution_plan"] = ExecutionPlan(
             subtasks=[
                 Subtask(
@@ -203,7 +191,7 @@ class TestSupervisor:
         
         assert result["next"] == "integrity_critic"
 
-    def test_supisor_executes_single_task(self, supervisor, sample_swarm_state):
+    def test_supervisor_executes_single_task(self, supervisor, sample_swarm_state):
         """Test that supervisor executes a single task and moves to critic."""
         sample_swarm_state["pending_tasks"] = [
             {
@@ -218,13 +206,7 @@ class TestSupervisor:
         sample_swarm_state["findings"] = []
         sample_swarm_state["completed_subtasks"] = []
         
-        # Mock the agent execution
-        mock_finding = MagicMock()
-        mock_finding.confidence = 0.95
-        mock_finding.dict.return_value = {"finding": "data"}
-        
-        with patch.object(supervisor, '_execute_agent_sync', return_value=mock_finding):
-            result = supervisor(sample_swarm_state)
+        result = supervisor(sample_swarm_state)
         
         # Should route to integrity_critic (no more tasks)
         assert result["next"] == "integrity_critic"
@@ -254,13 +236,7 @@ class TestSupervisor:
         sample_swarm_state["findings"] = []
         sample_swarm_state["completed_subtasks"] = []
         
-        # Mock the agent execution
-        mock_finding = MagicMock()
-        mock_finding.confidence = 0.95
-        mock_finding.dict.return_value = {"finding": "data"}
-        
-        with patch.object(supervisor, '_execute_agent_sync', return_value=mock_finding):
-            result = supervisor(sample_swarm_state)
+        result = supervisor(sample_swarm_state)
         
         # Should loop back to supervisor for next task
         assert result["next"] == "supervisor"
@@ -272,23 +248,29 @@ class TestSupervisor:
 class TestSwarmGraph:
     """Integration tests for the complete swarm graph."""
 
-    @pytest.mark.asyncio
-    async def test_graph_builds_successfully(self, built_graph):
-        """Test that the graph builds without errors."""
-        assert built_graph is not None
-        assert hasattr(built_graph, 'ainvoke')
+    @pytest.fixture
+    def real_graph(self, in_memory_checkpointer):
+        """Build a swarm graph with real MiniMax LLM for integration testing."""
+        graph = build_swarm_graph(checkpointer=in_memory_checkpointer)
+        return graph
 
     @pytest.mark.asyncio
-    async def test_graph_accepts_initial_state(self, built_graph, sample_swarm_state):
+    async def test_graph_builds_successfully(self, real_graph):
+        """Test that the graph builds without errors."""
+        assert real_graph is not None
+        assert hasattr(real_graph, 'ainvoke')
+
+    @pytest.mark.asyncio
+    async def test_graph_accepts_initial_state(self, real_graph, sample_swarm_state):
         """Test that graph accepts valid initial state."""
         config = {"configurable": {"thread_id": "test-thread"}}
         
         # This should not raise an error
         try:
-            result = await built_graph.ainvoke(sample_swarm_state, config=config)
+            result = await real_graph.ainvoke(sample_swarm_state, config=config)
             assert result is not None
         except Exception as e:
-            # Some errors are expected in mocked tests
+            # Some errors are expected in integration tests
             # Just verify the graph accepts the state structure
             assert "user_query" in sample_swarm_state or "user_input" in sample_swarm_state
 
@@ -296,37 +278,33 @@ class TestSwarmGraph:
 class TestGraphRouting:
     """Tests for graph routing logic."""
 
-    def test_coordinator_routes_to_planner_for_delegation(self, mock_llm):
+    @pytest.mark.asyncio
+    async def test_coordinator_routes_to_planner_for_delegation(self):
         """Test that coordinator routes to planner for delegation tasks."""
-        with patch('src.graph.coordinator.ChatOpenAI', return_value=mock_llm):
-            coordinator = Coordinator()
+        coordinator = Coordinator()
 
-            state = {
-                "user_input": "List tables in customers database",
-                "conversation_history": [],
-                "user_query": "List tables in customers database"
-            }
+        state = {
+            "user_input": "List tables in customers database",
+            "conversation_history": [],
+            "user_query": "List tables in customers database"
+        }
 
-            # Mock the intent chain to return a delegate intent
-            delegate_result = {"intent": "delegate_lightweight", "reasoning": "Test delegation"}
-            with patch.object(coordinator, 'intent_chain') as mock_chain:
-                mock_chain.invoke = MagicMock(return_value=delegate_result)
-                result = coordinator(state)
+        result = coordinator(state)
 
-            assert result.get("next") == "planner"
+        assert result.get("next") == "planner"
 
-    def test_planner_routes_to_dispatcher(self, mock_llm):
+    @pytest.mark.asyncio
+    async def test_planner_routes_to_dispatcher(self):
         """Test that planner routes to dispatcher."""
-        with patch('src.graph.planner.ChatOpenAI', return_value=mock_llm):
-            planner = Planner()
-            
-            state = {
-                "delegated_task": "List tables",
-                "user_query": "List tables",
-                "user_input": "List tables",
-                "conversation_history": []
-            }
-            
-            result = planner(state)
-            
-            assert "execution_plan" in result
+        planner = Planner()
+        
+        state = {
+            "delegated_task": "List tables",
+            "user_query": "List tables",
+            "user_input": "List tables",
+            "conversation_history": []
+        }
+        
+        result = planner(state)
+        
+        assert "execution_plan" in result

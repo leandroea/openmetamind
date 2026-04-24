@@ -60,6 +60,54 @@ class CatalogScout(SwarmAgent):
         # Cap the score at 1.0
         return min(score, 1.0)
     
+    def _build_search_query(self, task: str, entity_type: str = "table") -> str:
+        """
+        Build an optimized search query from the task description.
+        
+        The OpenMetadata search works better with specific terms rather than
+        natural language questions.
+        
+        Args:
+            task: The original task description
+            entity_type: The type of entity being searched for
+            
+        Returns:
+            Optimized search query string
+        """
+        task_lower = task.lower().strip()
+        
+        # Handle common patterns
+        # "list all tables" -> "table"
+        if task_lower in ["list all tables", "list all table", "show tables", "show all tables"]:
+            return "table"
+        
+        # "list databases" -> "database"
+        if task_lower in ["list all databases", "list databases", "show databases"]:
+            return "database"
+        
+        # "list schemas" -> "databaseSchema" 
+        if task_lower in ["list all schemas", "list schemas", "show schemas"]:
+            return "databaseSchema"
+            
+        # For queries like "list tables matching X", extract key terms
+        # Remove common filler words
+        stop_words = ['list', 'all', 'the', 'show', 'find', 'get', 'display', 'me', 'what', 'are', 'in', 'with', 'catalog']
+        words = task_lower.split()
+        key_terms = [w for w in words if w not in stop_words and len(w) > 1]
+        
+        if not key_terms:
+            # Default based on entity type
+            return entity_type if entity_type else "table"
+        
+        # Join remaining terms - this works better for OpenMetadata search
+        query = " ".join(key_terms)
+        
+        # If no entity type keyword found, prepend the entity type for better results
+        if not any(t in query for t in ["table", "database", "schema", "dashboard", "service"]):
+            query = f"{entity_type} {query}"
+        
+        return query
+    
     async def execute(
         self, 
         task: str, 
@@ -99,7 +147,8 @@ class CatalogScout(SwarmAgent):
             # Use the MCP client to search for entities using keyword search
             async with mcp_client as client:
                 # Build query from task description
-                query = task
+                # Clean up the query - remove stop words and use just key terms
+                query = self._build_search_query(task)
                 search_result = await client.search_metadata(
                     query=query,
                     entity_type=entity_type,
@@ -107,6 +156,7 @@ class CatalogScout(SwarmAgent):
                 )
                 
                 # Extract entities from search results
+                # The response structure has results at the top level
                 entities = search_result.get("results", [])
                 
                 # Create summary

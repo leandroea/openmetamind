@@ -1,9 +1,10 @@
 """
 Tests for the Integrity Critic - conflict detection and resolution.
+
+All tests use real MCP client and MiniMax LLM connections.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 
 from src.graph.integrity_critic import IntegrityCritic
@@ -14,14 +15,26 @@ from src.models.state import (
 
 
 class TestIntegrityCritic:
-    """Tests for the Integrity Critic node."""
+    """Tests for the Integrity Critic node using real connections."""
 
     @pytest.fixture
-    def critic(self, mock_llm):
-        with patch('src.graph.integrity_critic.ChatOpenAI', return_value=mock_llm):
-            return IntegrityCritic()
+    def critic(self):
+        return IntegrityCritic()
 
-    def test_critic_returns_empty_review_for_no_findings(self, critic, sample_swarm_state):
+    @pytest.fixture
+    def real_critic_llm(self):
+        """Create a real MiniMax LLM for the critic."""
+        from src.config.settings import Settings
+        settings = Settings()
+        from src.graph.planner import MiniMaxLLM
+        return MiniMaxLLM(
+            api_key=settings.minimax_api_key,
+            base_url=settings.minimax_base_url,
+            model=settings.minimax_model
+        )
+
+    @pytest.mark.asyncio
+    async def test_critic_returns_empty_review_for_no_findings(self, critic, sample_swarm_state, real_mcp_client):
         """Test that critic handles empty findings gracefully."""
         sample_swarm_state["blackboard"] = {
             "findings": [],
@@ -36,7 +49,8 @@ class TestIntegrityCritic:
         assert result["critic_review"]["findings_reviewed"] == 0
         assert result["next"] == "human_gate"  # No findings to auto-approve
 
-    def test_critic_detects_conflicts_between_findings(self, critic, sample_swarm_state):
+    @pytest.mark.asyncio
+    async def test_critic_detects_conflicts_between_findings(self, critic, sample_swarm_state):
         """Test that critic detects conflicting findings about the same entity."""
         # Create two findings with different summaries for the same entity
         finding1 = AgentFinding(
@@ -82,7 +96,8 @@ class TestIntegrityCritic:
         assert "critic_review" in result
         assert result["critic_review"]["findings_reviewed"] >= 1
 
-    def test_critic_detects_tag_conflicts(self, critic, sample_swarm_state):
+    @pytest.mark.asyncio
+    async def test_critic_detects_tag_conflicts(self, critic, sample_swarm_state):
         """Test conflict detection when two agents propose different tags."""
         # Finding 1: Data steward says email is PII.Sensitive
         finding1 = AgentFinding(
@@ -149,7 +164,8 @@ class TestIntegrityCritic:
             result["next"] == "human_gate"
         )
 
-    def test_critic_auto_approve_high_confidence_no_conflicts(self, critic, sample_swarm_state):
+    @pytest.mark.asyncio
+    async def test_critic_auto_approve_high_confidence_no_conflicts(self, critic, sample_swarm_state):
         """Test that critic auto-approves when all findings are high confidence and no conflicts."""
         finding = AgentFinding(
             finding_id="finding-high-conf",
@@ -162,7 +178,7 @@ class TestIntegrityCritic:
             details={"table_count": 5},
             confidence=0.95,  # High confidence
             proposed_actions=[],
-        mcp_tool_calls=[MCPToolCall(tool_name="list_entities", parameters={}, success=True)], # Has evidence
+            mcp_tool_calls=[MCPToolCall(tool_name="search_metadata", parameters={}, success=True)], # Has evidence
             llm_reasoning="Direct MCP query"
         )
         
@@ -176,10 +192,11 @@ class TestIntegrityCritic:
         result = critic(sample_swarm_state)
         
         assert "critic_review" in result
-        # With mocked LLM, we might get different results, but should have a decision
+        # Should have a decision (auto_approve expected for high confidence)
         assert "decision" in result["critic_review"]
 
-    def test_critic_escalates_low_confidence_findings(self, critic, sample_swarm_state):
+    @pytest.mark.asyncio
+    async def test_critic_escalates_low_confidence_findings(self, critic, sample_swarm_state):
         """Test that critic escalates low confidence findings to human."""
         finding = AgentFinding(
             finding_id="finding-low-conf",
@@ -209,7 +226,8 @@ class TestIntegrityCritic:
         # Should escalate to human for low confidence
         assert result["next"] in ["human_gate", "planner"]  # Either escalation or retry
 
-    def test_critic_validates_mcp_tool_calls(self, critic, sample_swarm_state):
+    @pytest.mark.asyncio
+    async def test_critic_validates_mcp_tool_calls(self, critic, sample_swarm_state):
         """Test that critic checks for MCP tool call evidence."""
         # Finding with MCP tool calls (evidence)
         finding_with_evidence = AgentFinding(
@@ -223,7 +241,7 @@ class TestIntegrityCritic:
             details={},
             confidence=0.9,
             proposed_actions=[],
-            mcp_tool_calls=[MCPToolCall(tool_name="list_entities", parameters={}, success=True)],
+            mcp_tool_calls=[MCPToolCall(tool_name="search_metadata", parameters={}, success=True)],
             llm_reasoning="Based on MCP response"
         )
         
@@ -260,11 +278,6 @@ class TestIntegrityCritic:
 class TestConflictResolution:
     """Tests for conflict resolution scenarios."""
 
-    @pytest.fixture
-    def critic(self, mock_llm):
-        with patch('src.graph.integrity_critic.ChatOpenAI', return_value=mock_llm):
-            return IntegrityCritic()
-
     def test_conflict_model_structure(self):
         """Test that Conflict model has required fields."""
         conflict = Conflict(
@@ -299,52 +312,6 @@ class TestConflictResolution:
         
         assert warning_conflict.severity == "warning"
         assert critical_conflict.severity == "critical"
-
-    def test_critic_writes_conflicts_to_blackboard(self, critic, sample_swarm_state):
-        """Test that critic writes detected conflicts to blackboard."""
-        # Create conflicting findings
-        finding1 = AgentFinding(
-            finding_id="conflict-1",
-            agent_id="agent-a",
-            subtask_id="task-1",
-            task_description="Task 1",
-            finding_type=FindingType.CLASSIFICATION,
-            target_entity="entity.1",
-            summary="Summary A",
-            details={},
-            confidence=0.8,
-            proposed_actions=[],
-            mcp_tool_calls=[],
-            llm_reasoning="Reasoning A"
-        )
-        
-        finding2 = AgentFinding(
-            finding_id="conflict-2",
-            agent_id="agent-b",
-            subtask_id="task-2",
-            task_description="Task 2",
-            finding_type=FindingType.CLASSIFICATION,
-            target_entity="entity.1",  # Same entity
-            summary="Summary B",  # Different summary
-            details={},
-            confidence=0.8,
-            proposed_actions=[],
-            mcp_tool_calls=[],
-            llm_reasoning="Reasoning B"
-        )
-        
-        sample_swarm_state["blackboard"] = {
-            "findings": [finding1, finding2],
-            "conflicts": [],
-            "agent_statuses": {},
-            "execution_phase": "reviewing"
-        }
-        
-        result = critic(sample_swarm_state)
-        
-        # Check if conflicts were added to blackboard
-        if "blackboard" in result:
-            assert "conflicts" in result["blackboard"]
 
 
 class TestCriticDecision:

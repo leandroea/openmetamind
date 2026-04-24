@@ -11,7 +11,7 @@ from .base import SwarmAgent, Capability
 from ..models.state import AgentFinding, ProposedAction, ActionType
 from ..mcp.client import get_mcp_client, OpenMetadataMCPClient
 
-# LangChain imports for NVIDIA LLM
+# LangChain imports for MiniMax LLM (OpenAI-compatible API)
 try:
     from langchain_openai import ChatOpenAI
     from langchain_core.prompts import ChatPromptTemplate

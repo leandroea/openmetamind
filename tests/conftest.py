@@ -1,19 +1,25 @@
 """
 Pytest configuration and fixtures for OpenMetaMind tests.
+
+All fixtures use real MCP client connections - no mocks.
 """
 
 import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+import os
 from typing import Dict, Any
 
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import AIMessage, HumanMessage
+from dotenv import load_dotenv
 
 from src.graph.swarm_graph import build_swarm_graph
 from src.agents.registry import AgentRegistry
-from src.mcp.client import OpenMetadataMCPClient
+from src.mcp.client import OpenMetadataMCPClient, get_mcp_client
 from src.models.state import SwarmState, AgentFinding, FindingType
+
+# Load environment variables
+load_dotenv()
 
 
 @pytest.fixture(scope="session")
@@ -25,78 +31,16 @@ def event_loop():
 
 
 @pytest.fixture
-def mock_mcp_client():
-    """Create a mocked MCP client for unit tests."""
-    mock_client = AsyncMock(spec=OpenMetadataMCPClient)
-    
-    # Mock search_metadata (used by catalog_scout)
-    mock_client.search_metadata = AsyncMock(return_value={"results": []})
-    
-    # Mock list_entities (legacy)
-    mock_client.list_entities = AsyncMock(return_value=[])
-    
-    # Mock get_table_profile
-    mock_client.get_table_profile = AsyncMock(return_value=MagicMock(
-        tableName="test_table",
-        databaseName="test_db",
-        columnCount=5,
-        rowCount=1000
-    ))
-    
-    # Mock get_column_profile
-    mock_client.get_column_profile = AsyncMock(return_value=MagicMock(
-        columnName="test_column",
-        dataType="varchar"
-    ))
-    
-    # Mock get_usage_stats
-    mock_client.get_usage_stats = AsyncMock(return_value=MagicMock(
-        entityFQN="test_db.test_table",
-        totalQueries=100,
-        uniqueUsers=10
-    ))
-    
-    # Mock write operations
-    mock_client.add_tags = AsyncMock(return_value=True)
-    mock_client.update_owner = AsyncMock(return_value=True)
-    mock_client.update_description = AsyncMock(return_value=True)
-    
-    # Setup async context manager - __aenter__ should return the client itself
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
-    
-    return mock_client
+def real_mcp_client():
+    """Create a real MCP client connected to OpenMetadata server."""
+    client = get_mcp_client()
+    return client
 
 
 @pytest.fixture
 def in_memory_checkpointer():
     """Create an in-memory checkpointer for tests."""
     return MemorySaver()
-
-
-@pytest.fixture
-def mock_llm():
-    """Create a mocked LLM for deterministic tests."""
-    mock = MagicMock()
-    # Default: return delegate_lightweight intent for coordinator tests
-    delegate_response = MagicMock()
-    delegate_response.content = '{"intent": "delegate_lightweight", "reasoning": "Test delegation"}'
-    mock.invoke = MagicMock(return_value=delegate_response)
-    mock.ainvoke = AsyncMock(return_value=delegate_response)
-    # Also support the chain pattern (prompt | llm | parser)
-    # When used in a pipe chain, the mock needs to support the | operator
-    mock.__or__ = lambda self, other: MagicMock(invoke=MagicMock(return_value={"intent": "delegate_lightweight", "reasoning": "Test delegation"}))
-    return mock
-
-
-@pytest.fixture
-def built_graph(in_memory_checkpointer, mock_llm):
-    """Build a swarm graph with mocked LLM for testing."""
-    with patch('src.graph.coordinator.ChatOpenAI', return_value=mock_llm), \
-         patch('src.graph.planner.ChatOpenAI', return_value=mock_llm), \
-         patch('src.graph.integrity_critic.ChatOpenAI', return_value=mock_llm):
-        graph = build_swarm_graph(checkpointer=in_memory_checkpointer)
-        return graph
 
 
 @pytest.fixture
@@ -146,30 +90,5 @@ def sample_swarm_state() -> SwarmState:
 @pytest.fixture(autouse=True)
 def reset_agent_registry():
     """Reset the agent registry before each test."""
-    # Clear the registry before each test
     registry = AgentRegistry()
-    # Note: In a real scenario, we'd need to reset the singleton
-    # For now, tests should import fresh agents
     yield
-    # Cleanup after test if needed
-
-
-@pytest.fixture
-def mock_openmetadata_response():
-    """Create mock OpenMetadata API responses."""
-    return {
-        "entities": [
-            {
-                "id": "entity-1",
-                "name": "users",
-                "fullyQualifiedName": "customers.users",
-                "description": "User accounts table"
-            },
-            {
-                "id": "entity-2",
-                "name": "orders",
-                "fullyQualifiedName": "customers.orders",
-                "description": "Orders table"
-            }
-        ]
-    }

@@ -132,26 +132,59 @@ class ActionExecutor:
         # Get MCP client
         mcp_client = get_mcp_client()
         
-        # Map action type to MCP tool name
-        tool_map = {
-            ActionType.ASSIGN_TAG: "add_tags",
-            ActionType.UPDATE_OWNER: "update_owner",
-            ActionType.ADD_DESCRIPTION: "update_description",
-            ActionType.CREATE_GLOSSARY_TERM: "create_glossary_term",
-            ActionType.UPDATE_LINEAGE: "update_lineage",
-            ActionType.ADD_OWNER: "add_owner",
-            ActionType.REMOVE_OWNER: "remove_owner",
-            ActionType.DELETE_TAG: "delete_tag",
-            # Add more mappings as needed
+        # Map action type to MCP method
+        action_methods = {
+            ActionType.ASSIGN_TAG: lambda client, action: client.add_tags(
+                fqn=action.entity_fqn,
+                entity_type=action.parameters.get("entity_type", "table"),
+                tags=action.parameters.get("tags", [])
+            ),
+            ActionType.UPDATE_OWNER: lambda client, action: client.add_owner(
+                fqn=action.entity_fqn,
+                entity_type=action.parameters.get("entity_type", "table"),
+                owner=action.parameters.get("owner"),
+                owner_type=action.parameters.get("owner_type", "user")
+            ),
+            ActionType.ADD_DESCRIPTION: lambda client, action: client.update_description(
+                fqn=action.entity_fqn,
+                entity_type=action.parameters.get("entity_type", "table"),
+                description=action.parameters.get("description", "")
+            ),
+            ActionType.CREATE_GLOSSARY_TERM: lambda client, action: client.create_glossary_term(
+                glossary=action.parameters.get("glossary"),
+                name=action.parameters.get("name"),
+                description=action.parameters.get("description", ""),
+                parent_term=action.parameters.get("parent_term"),
+                owners=action.parameters.get("owners")
+            ),
+            ActionType.UPDATE_LINEAGE: lambda client, action: client._call_mcp_tool(
+                "update_lineage", action.parameters
+            ),
+            ActionType.ADD_OWNER: lambda client, action: client.add_owner(
+                fqn=action.entity_fqn,
+                entity_type=action.parameters.get("entity_type", "table"),
+                owner=action.parameters.get("owner"),
+                owner_type=action.parameters.get("owner_type", "user")
+            ),
+            ActionType.REMOVE_OWNER: lambda client, action: client.remove_owner(
+                fqn=action.entity_fqn,
+                entity_type=action.parameters.get("entity_type", "table"),
+                owner=action.parameters.get("owner")
+            ),
+            ActionType.DELETE_TAG: lambda client, action: client.delete_tag(
+                fqn=action.entity_fqn,
+                entity_type=action.parameters.get("entity_type", "table"),
+                tag=action.parameters.get("tag")
+            ),
         }
-        
-        tool_name = tool_map.get(action.action_type)
-        if not tool_name:
+
+        action_method = action_methods.get(action.action_type)
+        if not action_method:
             raise ValueError(f"No MCP tool mapping for action type: {action.action_type}")
-        
-        # Execute the REAL MCP tool call
+
+        # Execute the MCP tool call using the helper method
         async with mcp_client as client:
-            result = await client._call_mcp_tool(tool_name, action.parameters)
+            result = await action_method(client, action)
             return result
     
     async def _validate_action(self, action: ProposedAction) -> Dict[str, Any]:
