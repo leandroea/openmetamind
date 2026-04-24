@@ -49,6 +49,8 @@ class Dispatcher:
         """
         plan_dict = state.get("execution_plan")
         
+        logger.info(f"Dispatcher: Received execution_plan: {type(plan_dict)}")
+        
         if not plan_dict:
             logger.info("Dispatcher: No execution plan found, skipping to integrity_critic")
             return {"next": "integrity_critic"}
@@ -58,6 +60,8 @@ class Dispatcher:
             plan = ExecutionPlan(**plan_dict)
         else:
             plan = plan_dict
+        
+        logger.info(f"Dispatcher: Plan has {len(plan.subtasks)} subtasks")
         
         # Convert subtasks to pending task queue
         pending_tasks = []

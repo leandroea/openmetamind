@@ -104,10 +104,12 @@ class Planner:
             Dictionary with state updates
         """
         delegated_task = state.get("delegated_task", "")
+        logger.info(f"Planner: Received delegated task: {delegated_task}")
         
         # Get available agents and their capabilities
         registry = AgentRegistry()
         agents = registry.list_agents()
+        logger.info(f"Planner: Found {len(agents)} agents")
         
         # Format agent capabilities for the prompt
         agent_capabilities_str = ""
@@ -117,12 +119,16 @@ class Planner:
                 cap_names = [cap.name for cap in agent.capabilities]
                 agent_capabilities_str += f"  Capabilities: {', '.join(cap_names)}\n"
         
+        logger.info(f"Planner: Invoking decomposition chain for task: {delegated_task[:50]}...")
+        
         # Decompose task into subtasks
         try:
             plan_result = self.decomposition_chain.invoke({
                 "user_request": delegated_task,
                 "agent_capabilities": agent_capabilities_str
             })
+            
+            logger.info(f"Planner: Decomposition successful, got {len(plan_result.get('subtasks', []))} subtasks")
             
             # Convert to ExecutionPlan object
             subtasks = [Subtask(**subtask_dict) for subtask_dict in plan_result.get("subtasks", [])]
@@ -133,7 +139,9 @@ class Planner:
             )
             
         except Exception as e:
+            logger.error(f"Planner: Decomposition failed: {str(e)}", exc_info=True)
             # Fallback to hardcoded decomposition if LLM fails
+            logger.info("Planner: Using fallback plan")
             execution_plan = self._create_fallback_plan(delegated_task, agents)
         
         # Prepare state updates
@@ -142,6 +150,8 @@ class Planner:
             "completed_subtasks": [],  # Reset completed subtasks
             "current_parallel_group": []  # Will be set by dispatcher
         }
+        
+        logger.info(f"Planner: Returning with {len(updates['execution_plan']['subtasks'])} subtasks")
         
         return updates
     
