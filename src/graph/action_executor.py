@@ -5,11 +5,13 @@ Performs actual MCP write operations. The only component with write permissions.
 """
 
 import asyncio
+import json
 import logging
 from typing import List, Dict, Any, Set, Optional
 
 from ..models.state import SwarmState, ProposedAction, ActionType
 from ..mcp.client import get_mcp_client, OpenMetadataMCPClient
+from ..mcp.models import Entity, TableProfile, ColumnProfile, UsageStats
 
 logger = logging.getLogger(__name__)
 
@@ -145,11 +147,6 @@ class ActionExecutor:
                 owner=action.parameters.get("owner"),
                 owner_type=action.parameters.get("owner_type", "user")
             ),
-            ActionType.ADD_DESCRIPTION: lambda client, action: client.update_description(
-                fqn=action.entity_fqn,
-                entity_type=action.parameters.get("entity_type", "table"),
-                description=action.parameters.get("description", "")
-            ),
             ActionType.CREATE_GLOSSARY_TERM: lambda client, action: client.create_glossary_term(
                 glossary=action.parameters.get("glossary"),
                 name=action.parameters.get("name"),
@@ -177,6 +174,25 @@ class ActionExecutor:
                 tag=action.parameters.get("tag")
             ),
         }
+
+        # Special handling for ADD_DESCRIPTION - use patch_entity with logging
+        if action.action_type == ActionType.ADD_DESCRIPTION:
+            async with mcp_client as client:
+                entity_type = action.parameters.get("entity_type", "table")
+                entity_fqn = action.entity_fqn
+                description = action.parameters.get("description", "")
+                patch_payload = OpenMetadataMCPClient.build_description_patch(description)
+                
+                logger.info(f"Executing ADD_DESCRIPTION via patch_entity for {entity_fqn}")
+                logger.debug(f"Patch payload: {json.dumps(patch_payload)}")
+                logger.debug(f"Entity type: {entity_type}, path: /description")
+                
+                result = await client.patch_entity(
+                    entity_type=entity_type,
+                    fqn=entity_fqn,
+                    patch=patch_payload
+                )
+                return result
 
         action_method = action_methods.get(action.action_type)
         if not action_method:
@@ -373,13 +389,15 @@ async def _execute_single_action(
     parameters = action_dict.get("parameters", {})
     entity_type = parameters.get("entity_type", "table")
     
-    # For now, only ADD_DESCRIPTION is supported
+    # ADD_DESCRIPTION uses patch_entity with JSON Patch
     if action_type in ("ADD_DESCRIPTION", "add_description"):
         description = parameters.get("description", "")
-        result = await mcp_client.update_description(
-            fqn=entity_fqn,
+        logger.info(f"Executing ADD_DESCRIPTION via patch_entity for {entity_fqn}")
+        logger.debug(f"Patch payload: {json.dumps([{'op': 'replace', 'path': '/description', 'value': description}])}")
+        result = await mcp_client.patch_entity(
             entity_type=entity_type,
-            description=description
+            fqn=entity_fqn,
+            patch=[{"op": "replace", "path": "/description", "value": description}]
         )
         return {
             "success": True,
