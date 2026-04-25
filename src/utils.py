@@ -33,7 +33,7 @@ def strip_think(text: str) -> str:
             if end == -1:
                 result = result[:start]
             else:
-                result = result[:start] + result[end + 5:]
+                result = result[:start] + result[end + 1:]
         return result
     
     cleaned = remove_think_blocks(text)
