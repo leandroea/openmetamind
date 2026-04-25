@@ -36,9 +36,14 @@ class MiniMaxJsonOutputParser(JsonOutputParser):
         
         logger.info(f"Planner: Raw LLM response length: {len(text)}")
         
+        # Debug: log first 50 chars with their ordinal values to detect hidden characters
+        first_50 = text[:50]
+        char_repr = [f"'{c}'({ord(c)})" for c in first_50]
+        logger.info(f"Planner: First 50 chars with ordinals: {char_repr}")
+        
         # Remove thinking tags and their content (various formats)
-        text = re.sub(r'<think>(.*?)', '', text, flags=re.DOTALL)
-        text = re.sub(r'<think>(.*?)', '', text, flags=re.DOTALL)
+        text = re.sub(r'<think>(.*?)<\/think>', '', text, flags=re.DOTALL)
+        text = re.sub(r'<think>(.*?)', '', text, flags=re.DOTALL)  # Also handles unclosed tags
         text = re.sub(r'<\|im_end\|>', '', text)
         text = re.sub(r'<\|[^|]+\|>', '', text)
         
@@ -72,6 +77,9 @@ class MiniMaxJsonOutputParser(JsonOutputParser):
                             text = text[:i+1]
                             break
         
+        # Debug: log the full extracted text with ordinals for each char
+        logger.info(f"Planner: Extracted JSON text length: {len(text)}")
+        logger.info(f"Planner: Full text repr: {repr(text[:500])}")
         logger.info(f"Planner: Extracted JSON candidate: '{text[:300]}...'")
         
         # Try to parse the cleaned JSON

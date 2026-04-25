@@ -6,7 +6,7 @@ Performs actual MCP write operations. The only component with write permissions.
 
 import asyncio
 import logging
-from typing import List, Dict, Any, Set
+from typing import List, Dict, Any, Set, Optional
 
 from ..models.state import SwarmState, ProposedAction, ActionType
 from ..mcp.client import get_mcp_client, OpenMetadataMCPClient
@@ -346,3 +346,136 @@ def action_executor_dry_run_node(state: SwarmState) -> Dict[str, Any]:
         # In dry-run, we might want to keep actions for review
         "approved_actions": approved_actions
     }
+
+
+# =============================================================================
+# Standalone Human Approval Execution Functions
+# These functions allow the Streamlit UI to manually trigger action execution
+# after the Critic escalates to human review.
+# =============================================================================
+
+async def _execute_single_action(
+    action_dict: Dict[str, Any],
+    mcp_client: OpenMetadataMCPClient
+) -> Dict[str, Any]:
+    """
+    Execute a single action via MCP.
+    
+    Args:
+        action_dict: Dictionary representing the action
+        mcp_client: Active MCP client context manager
+        
+    Returns:
+        Result dictionary with success status and details
+    """
+    action_type = action_dict.get("action_type", "")
+    entity_fqn = action_dict.get("entity_fqn", "")
+    parameters = action_dict.get("parameters", {})
+    entity_type = parameters.get("entity_type", "table")
+    
+    # For now, only ADD_DESCRIPTION is supported
+    if action_type == "ADD_DESCRIPTION":
+        description = parameters.get("description", "")
+        result = await mcp_client.update_description(
+            fqn=entity_fqn,
+            entity_type=entity_type,
+            description=description
+        )
+        return {
+            "success": True,
+            "action_type": action_type,
+            "entity_fqn": entity_fqn,
+            "result": result
+        }
+    else:
+        logger.warning(f"Action type '{action_type}' not yet supported for manual execution")
+        return {
+            "success": False,
+            "action_type": action_type,
+            "entity_fqn": entity_fqn,
+            "error": f"Action type '{action_type}' not yet supported for manual execution"
+        }
+
+
+async def execute_pending_actions_async(
+    actions: List[Dict[str, Any]],
+    mcp_client: OpenMetadataMCPClient = None
+) -> Dict[str, Any]:
+    """
+    Execute a list of pending actions via MCP.
+    
+    This is a standalone async function that can be called from outside the
+    LangGraph workflow, such as when a human clicks "Approve All" in the UI.
+    
+    Args:
+        actions: List of action dictionaries (from pending_human_actions)
+        mcp_client: Optional MCP client. If not provided, will obtain one.
+        
+    Returns:
+        Summary dictionary with:
+        - total_actions: How many actions were attempted
+        - successful_actions: How many succeeded
+        - failed_actions: How many failed
+        - results: List of per-action results
+    """
+    results = []
+    successful = 0
+    failed = 0
+    
+    # Get MCP client if not provided
+    if mcp_client is None:
+        client = get_mcp_client()
+    else:
+        client = mcp_client
+    
+    try:
+        async with client as mc:
+            for action_dict in actions:
+                try:
+                    result = await _execute_single_action(action_dict, mc)
+                    results.append(result)
+                    if result.get("success", False):
+                        successful += 1
+                    else:
+                        failed += 1
+                except Exception as e:
+                    logger.error(f"Failed to execute action {action_dict.get('action_type')} on {action_dict.get('entity_fqn')}: {str(e)}")
+                    results.append({
+                        "success": False,
+                        "action_type": action_dict.get("action_type", "UNKNOWN"),
+                        "entity_fqn": action_dict.get("entity_fqn", "UNKNOWN"),
+                        "error": str(e)
+                    })
+                    failed += 1
+    except Exception as e:
+        logger.error(f"MCP client error: {str(e)}")
+        # Let the error propagate after async with has cleaned up
+        raise
+    # Note: async with handles cleanup via __aexit__, no explicit close() needed
+    
+    return {
+        "total_actions": len(actions),
+        "successful_actions": successful,
+        "failed_actions": failed,
+        "results": results
+    }
+
+
+def execute_pending_actions(
+    actions: List[Dict[str, Any]],
+    mcp_client: OpenMetadataMCPClient = None
+) -> Dict[str, Any]:
+    """
+    Synchronous wrapper for execute_pending_actions_async.
+    
+    This allows Streamlit button callbacks to call the execution function
+    directly without dealing with async/await.
+    
+    Args:
+        actions: List of action dictionaries (from pending_human_actions)
+        mcp_client: Optional MCP client. If not provided, will obtain one.
+        
+    Returns:
+        Summary dictionary with execution results
+    """
+    return asyncio.run(execute_pending_actions_async(actions, mcp_client))
