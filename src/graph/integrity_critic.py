@@ -148,10 +148,30 @@ class IntegrityCritic:
         # Group findings by target_entity for conflict detection
         findings_by_entity: Dict[str, List[AgentFinding]] = {}
         for finding in findings:
+            # Skip zero-confidence findings with no proposed actions
+            if finding.confidence == 0.0 and len(finding.proposed_actions) == 0:
+                logger.warning(f"Finding from {finding.agent_id} has zero confidence and no actions — skipping")
+                continue
+            
             entity = finding.target_entity or "unknown"
             if entity not in findings_by_entity:
                 findings_by_entity[entity] = []
             findings_by_entity[entity].append(finding)
+        
+        # If no actionable findings, return early with AUTO_APPROVE
+        if not findings_by_entity:
+            logger.info("No actionable findings to review — returning AUTO_APPROVE")
+            critic_review = CriticReview(
+                decision=CriticDecision.AUTO_APPROVE,
+                reasoning="No actionable findings to review",
+                approved_actions=[],
+                escalated_actions=[],
+                conflicts=[]
+            )
+            return {
+                "critic_review": critic_review.model_dump(),
+                "next": "action_executor"
+            }
         
         # Format findings for the prompt
         findings_str = ""
