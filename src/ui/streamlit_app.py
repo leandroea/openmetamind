@@ -601,7 +601,7 @@ def render_approval_gate():
     # Show each pending action with details
     for i, action in enumerate(pending):
         action_type = action.get("action_type", "UNKNOWN")
-        entity_fqn = action.get("target_entity") or action.get("entity_fqn", "unknown")
+        entity_fqn = action.get("target_entity", "unknown")
         parameters = action.get("parameters", {})
         description = strip_think(parameters.get("description", ""))
         # Confidence is a top-level field in ProposedAction, not in parameters

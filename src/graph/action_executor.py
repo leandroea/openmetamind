@@ -55,7 +55,7 @@ class ActionExecutor:
             # Check idempotency: skip if already executed
             action_hash = self._get_action_hash(action)
             if action_hash in executed_actions:
-                logger.info(f"Skipping already executed action: {action.action_type} on {action.entity_fqn}")
+                logger.info(f"Skipping already executed action: {action.action_type} on {action.target_entity}")
                 results.append({
                     "action": action.model_dump() if hasattr(action, 'model_dump') else action,
                     "success": True,
@@ -66,7 +66,7 @@ class ActionExecutor:
             
             # Check if we've already executed this action in this batch (double-check)
             if action_hash in newly_executed:
-                logger.info(f"Skipping duplicate action in batch: {action.action_type} on {action.entity_fqn}")
+                logger.info(f"Skipping duplicate action in batch: {action.action_type} on {action.target_entity}")
                 results.append({
                     "action": action.model_dump() if hasattr(action, 'model_dump') else action,
                     "success": True,
@@ -79,7 +79,7 @@ class ActionExecutor:
                 if dry_run:
                     # In dry-run mode, we still want to validate the action would work
                     # For now, we'll simulate but log what we would do
-                    logger.info(f"DRY RUN: Would execute {action.action_type} on {action.entity_fqn}")
+                    logger.info(f"DRY RUN: Would execute {action.action_type} on {action.target_entity}")
                     result = await self._validate_action(action)
                 else:
                     # Actually execute the MCP call
@@ -98,7 +98,7 @@ class ActionExecutor:
                 # Since we're continuing, we just keep track of successes
                 
             except Exception as e:
-                logger.error(f"Action execution failed: {action.action_type} on {action.entity_fqn}: {str(e)}")
+                logger.error(f"Action execution failed: {action.action_type} on {action.target_entity}: {str(e)}")
                 results.append({
                     "action": action.model_dump() if hasattr(action, 'model_dump') else action,
                     "success": False,
@@ -137,12 +137,12 @@ class ActionExecutor:
         # Map action type to MCP method
         action_methods = {
             ActionType.ASSIGN_TAG: lambda client, action: client.add_tags(
-                fqn=action.entity_fqn,
+                fqn=action.target_entity,
                 entity_type=action.parameters.get("entity_type", "table"),
                 tags=action.parameters.get("tags", [])
             ),
             ActionType.UPDATE_OWNER: lambda client, action: client.add_owner(
-                fqn=action.entity_fqn,
+                fqn=action.target_entity,
                 entity_type=action.parameters.get("entity_type", "table"),
                 owner=action.parameters.get("owner"),
                 owner_type=action.parameters.get("owner_type", "user")
@@ -158,18 +158,18 @@ class ActionExecutor:
                 "update_lineage", action.parameters
             ),
             ActionType.ADD_OWNER: lambda client, action: client.add_owner(
-                fqn=action.entity_fqn,
+                fqn=action.target_entity,
                 entity_type=action.parameters.get("entity_type", "table"),
                 owner=action.parameters.get("owner"),
                 owner_type=action.parameters.get("owner_type", "user")
             ),
             ActionType.REMOVE_OWNER: lambda client, action: client.remove_owner(
-                fqn=action.entity_fqn,
+                fqn=action.target_entity,
                 entity_type=action.parameters.get("entity_type", "table"),
                 owner=action.parameters.get("owner")
             ),
             ActionType.DELETE_TAG: lambda client, action: client.delete_tag(
-                fqn=action.entity_fqn,
+                fqn=action.target_entity,
                 entity_type=action.parameters.get("entity_type", "table"),
                 tag=action.parameters.get("tag")
             ),
@@ -179,7 +179,7 @@ class ActionExecutor:
         if action.action_type == ActionType.ADD_DESCRIPTION:
             async with mcp_client as client:
                 entity_type = action.parameters.get("entity_type", "table")
-                entity_fqn = action.entity_fqn
+                entity_fqn = action.target_entity
                 description = action.parameters.get("description", "")
                 patch_payload = OpenMetadataMCPClient.build_description_patch(description)
                 
@@ -219,9 +219,9 @@ class ActionExecutor:
         return {
             "dry_run": True,
             "action_type": action.action_type.value if hasattr(action.action_type, 'value') else str(action.action_type),
-            "entity_fqn": action.entity_fqn,
+            "entity_fqn": action.target_entity,
             "parameters": action.parameters,
-            "message": f"DRY RUN: Validated {action.action_type} on {action.entity_fqn} - would execute in live mode"
+            "message": f"DRY RUN: Validated {action.action_type} on {action.target_entity} - would execute in live mode"
         }
     
     def _get_action_hash(self, action: ProposedAction) -> str:
@@ -236,7 +236,7 @@ class ActionExecutor:
         """
         # Simple hash based on action type, entity, and parameters
         import hashlib
-        action_str = f"{action.action_type}:{action.entity_fqn}:{str(sorted(action.parameters.items()))}"
+        action_str = f"{action.action_type}:{action.target_entity}:{str(sorted(action.parameters.items()))}"
         return hashlib.md5(action_str.encode()).hexdigest()
 
 
@@ -385,7 +385,7 @@ async def _execute_single_action(
         Result dictionary with success status and details
     """
     action_type = action_dict.get("action_type", "")
-    entity_fqn = action_dict.get("entity_fqn", "")
+    entity_fqn = action_dict.get("target_entity", "")
     parameters = action_dict.get("parameters", {})
     entity_type = parameters.get("entity_type", "table")
     
@@ -393,11 +393,11 @@ async def _execute_single_action(
     if action_type in ("ADD_DESCRIPTION", "add_description"):
         description = parameters.get("description", "")
         logger.info(f"Executing ADD_DESCRIPTION via patch_entity for {entity_fqn}")
-        logger.debug(f"Patch payload: {json.dumps([{'op': 'replace', 'path': '/description', 'value': description}])}")
+        logger.debug(f"Patch payload: {json.dumps([{'op': 'add', 'path': '/description', 'value': description}])}")
         result = await mcp_client.patch_entity(
             entity_type=entity_type,
             fqn=entity_fqn,
-            patch=[{"op": "replace", "path": "/description", "value": description}]
+            patch=[{"op": "add", "path": "/description", "value": description}]
         )
         return {
             "success": True,
@@ -461,7 +461,7 @@ async def execute_pending_actions_async(
                     results.append({
                         "success": False,
                         "action_type": action_dict.get("action_type", "UNKNOWN"),
-                        "entity_fqn": action_dict.get("entity_fqn", "UNKNOWN"),
+                        "target_entity": action_dict.get("target_entity", "UNKNOWN"),
                         "error": str(e)
                     })
                     failed += 1

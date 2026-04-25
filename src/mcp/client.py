@@ -497,40 +497,31 @@ class OpenMetadataMCPClient:
             "limit": limit
         })
 
-    async def create_metric(
+    async def create_lineage(
         self,
-        name: str,
-        description: str,
-        metric_expression_language: str,
-        metric_expression_code: str,
-        metric_type: str = "COUNT",
-        owners: Optional[List[str]] = None
+        source_entity_type: str,
+        source_fqn: str,
+        target_entity_type: str,
+        target_fqn: str
     ) -> Dict[str, Any]:
         """
-        Create a new metric.
+        Create a lineage relationship between two entities.
         
         Args:
-            name: Name of the metric
-            description: Description in Markdown format
-            metric_expression_language: Language (SQL, Python, Java, JavaScript, External)
-            metric_expression_code: The code or query
-            metric_type: Type of metric
-            owners: List of owners
+            source_entity_type: Type of source entity (e.g., 'table', 'pipeline')
+            source_fqn: Fully qualified name of the source entity
+            target_entity_type: Type of target entity
+            target_fqn: Fully qualified name of the target entity
             
         Returns:
-            Created metric result
+            Created lineage result
         """
-        arguments = {
-            "name": name,
-            "description": description,
-            "metricExpressionLanguage": metric_expression_language,
-            "metricExpressionCode": metric_expression_code,
-            "metricType": metric_type
-        }
-        if owners:
-            arguments["owners"] = owners
-            
-        return await self._call_mcp_tool("create_metric", arguments)
+        return await self._call_mcp_tool("create_lineage", {
+            "sourceEntityType": source_entity_type,
+            "sourceFQN": source_fqn,
+            "targetEntityType": target_entity_type,
+            "targetFQN": target_fqn
+        })
 
     async def root_cause_analysis(
         self,

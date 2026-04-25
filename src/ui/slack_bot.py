@@ -495,7 +495,7 @@ class OpenMetaMindSlackBot:
         # Add each action as a section
         for i, action in enumerate(pending_approvals[:5]):  # Limit to 5 actions
             action_type = action.get("action_type", "unknown")
-            entity_fqn = action.get("entity_fqn", "unknown")
+            entity_fqn = action.get("target_entity", "unknown")
             confidence = action.get("confidence", 0.0)
             
             blocks.append({

@@ -172,7 +172,7 @@ class DataSteward(SwarmAgent):
                         # Suggest PII tag for columns with PII
                         action = ProposedAction(
                             action_type=ActionType.ASSIGN_TAG,
-                            entity_fqn=entity_fqn,
+                            target_entity=entity_fqn,
                             parameters={
                                 "tags": ["PII"],
                                 "column_names": pii_column_names # Assuming MCP supports column-level tagging

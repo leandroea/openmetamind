@@ -118,6 +118,15 @@ class IntegrityCritic:
         """
         logger.info(f"Integrity Critic: Called with {len(state.get('findings', []))} findings")
         
+        # Debug logging for received findings
+        logger.info(f"[Critic] Received {len(state.get('findings', []))} findings")
+        for i, f in enumerate(state.get('findings', [])):
+            f_obj = AgentFinding(**f) if isinstance(f, dict) else f
+            actions = getattr(f_obj, "proposed_actions", [])
+            logger.info(f"[Critic] Finding {i} from {f_obj.agent_id}: confidence={f_obj.confidence}, actions_count={len(actions)}")
+            for j, action in enumerate(actions):
+                logger.info(f"[Critic]   Action {j}: type={action.action_type}, target={action.target_entity}")
+        
         blackboard = state.get("blackboard", {})
         findings_raw = state.get("findings", [])  # Findings accumulated at top level via operator.add
         
@@ -215,6 +224,17 @@ class IntegrityCritic:
                 escalated_actions=[ProposedAction(**a) for a in critic_result.get("escalated_actions", [])]
             )
             
+            # Debug: log decisions for each action
+            for a in critic_result.get("approved_actions", []):
+                action = ProposedAction(**a)
+                logger.info(f"[Critic] Decision for {action.action_type} on {action.target_entity}: APPROVED")
+            for a in critic_result.get("rejected_actions", []):
+                action = ProposedAction(**a)
+                logger.info(f"[Critic] Decision for {action.action_type} on {action.target_entity}: REJECTED")
+            for a in critic_result.get("escalated_actions", []):
+                action = ProposedAction(**a)
+                logger.info(f"[Critic] Decision for {action.action_type} on {action.target_entity}: ESCALATED")
+            
         except Exception as e:
             # Fallback critic decision based on simple heuristics
             finding_assessments = []
@@ -274,6 +294,8 @@ class IntegrityCritic:
             all_proposed_actions = []
             for finding in findings:
                 all_proposed_actions.extend(finding.proposed_actions)
+                for action in finding.proposed_actions:
+                    logger.info(f"[Critic] Fallback ESCALATED: {action.action_type} on {action.target_entity}")
             critic_review.escalated_actions = all_proposed_actions
         
         # Add any new conflicts to the blackboard

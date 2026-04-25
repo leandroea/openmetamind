@@ -52,7 +52,7 @@ class MCPToolCall(BaseModel):
 class ProposedAction(BaseModel):
     """A proposed action to be executed by the Action Executor."""
     action_type: ActionType
-    entity_fqn: str  # Fully qualified name of the OpenMetadata entity
+    target_entity: str  # Fully qualified name of the OpenMetadata entity
     parameters: Dict[str, Any]
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence in this action")
     proposed_by: str  # agent_id that proposed this action

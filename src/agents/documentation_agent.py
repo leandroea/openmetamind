@@ -413,7 +413,7 @@ Your description:"""
                     if confidence > 0:
                         proposed_actions.append(ProposedAction(
                             action_type=ActionType.ADD_DESCRIPTION,
-                            entity_fqn=entity.get("name", ""),
+                            target_entity=entity.get("name", ""),
                             parameters={"description": description, "entity_type": "table"},
                             confidence=confidence,
                             proposed_by=self.agent_id
@@ -453,6 +453,11 @@ Your description:"""
             overall_confidence = sum(r["confidence"] for r in details_results) / len(details_results)
         
         summary = f"Found {len(undocumented)} undocumented entities, generated descriptions for {len(details_results)}"
+        
+        # Debug logging for proposed_actions before return
+        logger.info(f"[DocumentationAgent] RETURNING with {len(proposed_actions)} proposed_actions")
+        for i, action in enumerate(proposed_actions):
+            logger.info(f"  Action {i}: type={action.action_type}, target={action.target_entity}, params_keys={list(action.parameters.keys())}")
         
         return AgentFinding(
             agent_id=self.agent_id,

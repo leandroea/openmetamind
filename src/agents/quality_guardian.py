@@ -107,12 +107,12 @@ class QualityGuardian(SwarmAgent):
                 subtask_id="quality_analysis",
                 task_description=task,
                 finding_type="quality",
-                summary="Quality Guardian: No table specified for analysis",
+                summary="No table specified for profiling",
                 details={"error": "No table FQN provided in task or inputs"},
-                confidence=0.0,
+                confidence=1.0,
                 proposed_actions=[],
                 mcp_tool_calls=[],
-                llm_reasoning="Cannot perform quality analysis without a target table."
+                llm_reasoning="Cannot perform quality analysis without a target table. Returning empty actions."
             )
             return finding
         
@@ -138,7 +138,7 @@ class QualityGuardian(SwarmAgent):
                     # Suggest adding a description about quality issues
                     action = ProposedAction(
                         action_type=ActionType.ADD_DESCRIPTION,
-                        entity_fqn=table_fqn,
+                            target_entity=table_fqn,
                         parameters={
                             "description": f"Data quality score: {quality_metrics['quality_score']:.2f}. Review recommended."
                         },
