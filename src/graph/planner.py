@@ -32,18 +32,34 @@ class MiniMaxJsonOutputParser(JsonOutputParser):
     """
     
     def parse_result(self, result, *, partial: bool = False):
-        """Extract clean JSON from LLM response and parse it."""
-        # Extract raw text from LLM response properly
-        if hasattr(result, 'content'):
-            # This is an AIMessage or similar with content attribute
+        """Extract clean JSON from LLM response and parse it.
+        
+        Handles the LangChain output parser format where result is a list
+        of ChatGeneration objects: [ChatGeneration(message=AIMessage(...))]
+        """
+        # Unwrap from LangChain's list format if needed
+        raw_result = result
+        if isinstance(result, list) and len(result) > 0:
+            first_item = result[0]
+            if hasattr(first_item, 'message'):
+                # This is a ChatGeneration object
+                message = first_item.message
+                if hasattr(message, 'content'):
+                    raw_text = message.content
+                elif hasattr(message, 'text'):
+                    raw_text = message.text
+                else:
+                    raw_text = str(message)
+            elif hasattr(first_item, 'text'):
+                raw_text = first_item.text
+            else:
+                raw_text = str(first_item)
+        elif hasattr(result, 'content'):
             raw_text = result.content
         elif hasattr(result, 'text'):
-            # Some result types have text attribute
             raw_text = result.text
         else:
-            # Last resort - string representation (may include wrapper chars)
             raw_text = str(result)
-            logger.warning(f"Planner: Used str(result) fallback, got: {raw_text[:100]}...")
         
         # Validate we got a string
         if not isinstance(raw_text, str):
