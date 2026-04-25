@@ -18,6 +18,8 @@ load_dotenv()
 # Initialize logging
 from src.config import setup_logging
 setup_logging()
+import logging
+logger = logging.getLogger(__name__)
 
 import websocket
 import threading
@@ -207,6 +209,8 @@ def run_swarm(query: str, user_id: str = "demo_user") -> Optional[Dict[str, Any]
         runner = get_swarm_runner()
         return runner.run(query, user_id)
     except Exception as e:
+        import traceback
+        logger.error(f"COORDINATOR CRASH:\n{traceback.format_exc()}")
         st.error(f"Error running swarm: {e}")
         return None
 
