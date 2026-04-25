@@ -374,7 +374,7 @@ async def _execute_single_action(
     entity_type = parameters.get("entity_type", "table")
     
     # For now, only ADD_DESCRIPTION is supported
-    if action_type == "ADD_DESCRIPTION":
+    if action_type in ("ADD_DESCRIPTION", "add_description"):
         description = parameters.get("description", "")
         result = await mcp_client.update_description(
             fqn=entity_fqn,
