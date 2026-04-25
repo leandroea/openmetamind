@@ -385,6 +385,18 @@ def render_chat_tab():
             st.session_state.pending_approvals = result.get("approved_actions", [])
             st.session_state.pending_human_actions = result.get("pending_human_actions", final_state.get("pending_human_actions", []))
             
+            # CRITICAL FIX: Extract escalated actions from critic_review if swarm_runner didn't populate them
+            if not st.session_state.pending_human_actions and "critic_review" in final_state:
+                critic_review = final_state["critic_review"]
+                # critic_review may be a Pydantic model or a dict
+                if hasattr(critic_review, "escalated_actions"):
+                    st.session_state.pending_human_actions = critic_review.escalated_actions
+                    st.session_state.pending_approvals = critic_review.approved_actions
+                elif isinstance(critic_review, dict):
+                    st.session_state.pending_human_actions = critic_review.get("escalated_actions", [])
+                    st.session_state.pending_approvals = critic_review.get("approved_actions", [])
+                logger.info(f"Extracted {len(st.session_state.pending_human_actions)} escalated actions from critic_review")
+            
             # Add coordinator response
             response_text = result.get("coordinator_response", "The swarm has completed its analysis.")
             pending = st.session_state.pending_human_actions
