@@ -13,6 +13,7 @@ from langchain_core.output_parsers import JsonOutputParser
 import os
 import logging
 import re
+import traceback
 
 from ..models.state import SwarmState
 from ..agents.registry import get_agent_registry
@@ -185,8 +186,9 @@ class Coordinator:
             reasoning = intent_result.get("reasoning", "")
             suggested_clarification = intent_result.get("suggested_clarification", "")
             
-        except Exception as e:
-            logger.error(f"Intent classification failed: {str(e)}", exc_info=True)
+            except Exception as e:
+                logger.error(f"Intent classification failed: {str(e)}")
+                logger.error(f"Intent classification traceback: {traceback.format_exc()}")
             # Fallback to clarification if intent classification fails
             intent = "clarify"
             reasoning = f"Intent classification failed: {str(e)}"
@@ -253,7 +255,9 @@ class Coordinator:
                 })
                 updates["coordinator_response"] = answer.content if hasattr(answer, 'content') else str(answer)
             except Exception as e:
-                updates["coordinator_response"] = f"I apologize, but I encountered an error while trying to answer your question: {str(e)}"
+                logger.error(f"Answer generation failed: {str(e)}")
+                logger.error(f"Answer generation traceback: {traceback.format_exc()}")
+                updates["coordinator_response"] = f"Backend error ({type(e).__name__}): {str(e)[:200]}"
             
             # Route to END (handled by returning special value in LangGraph)
             updates["next"] = "end"
