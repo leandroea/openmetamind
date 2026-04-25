@@ -59,7 +59,7 @@ class DocumentationAgent(SwarmAgent):
                 api_key=os.getenv("MINIMAX_API_KEY"),
                 model=os.getenv("LLM_MODEL", "minimax-m2.7"),
                 temperature=0.3,
-                max_tokens=500
+                max_tokens=1000
             )
         return self.llm
     
@@ -298,9 +298,13 @@ Respond with ONLY the description text, no preamble or formatting. Be concise an
             
             # Validate response
             description = description.strip()
-            if len(description) < 10 or "unavailable" in description.lower():
+            logger.info(f"LLM generated description: '{description}' (length: {len(description)})")
+            
+            # Only return low confidence for explicit "unavailable" or empty responses
+            if not description or "unavailable" in description.lower():
                 return description, 0.3
             
+            # Any other successfully generated description gets at least 0.7 confidence
             return description, 0.85
             
         except Exception as e:
