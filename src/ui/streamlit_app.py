@@ -586,7 +586,7 @@ def render_approval_gate():
     # Show each pending action with details
     for i, action in enumerate(pending):
         action_type = action.get("action_type", "UNKNOWN")
-        entity_fqn = action.get("entity_fqn", "unknown")
+        entity_fqn = action.get("target_entity") or action.get("entity_fqn", "unknown")
         parameters = action.get("parameters", {})
         description = parameters.get("description", "")
         confidence = parameters.get("confidence", 0.0)
@@ -614,27 +614,33 @@ def render_approval_gate():
     
     with col1:
         if st.button("✅ Approve All", type="primary", use_container_width=True):
-            # Import the execution function
-            from src.graph.action_executor import execute_pending_actions
-            
-            # Execute the pending actions
-            result = execute_pending_actions(pending)
-            
-            successful = result.get("successful_actions", 0)
-            failed = result.get("failed_actions", 0)
-            total = result.get("total_actions", 0)
-            
-            if failed == 0:
-                st.success(f"✅ {successful} action(s) applied successfully!")
+            try:
+                from src.graph.action_executor import execute_pending_actions
+                result = execute_pending_actions(pending)
+                
+                successful = result.get("successful_actions", 0)
+                failed = result.get("failed_actions", 0)
+                total = result.get("total_actions", 0)
+                
+                if failed == 0:
+                    st.success(f"✅ {successful} action(s) applied successfully!")
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": f"✅ Approved and applied {successful} action(s) to OpenMetadata."
+                    })
+                else:
+                    st.warning(f"⚠️ {successful} succeeded, {failed} failed out of {total} total.")
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": f"⚠️ Approved {total} action(s) - {successful} succeeded, {failed} failed."
+                    })
+            except Exception as e:
+                import traceback
+                logger.error(f"Action execution failed: {traceback.format_exc()}")
+                st.error(f"Execution failed: {str(e)}")
                 st.session_state.messages.append({
                     "role": "assistant",
-                    "content": f"✅ Human approved {successful} action(s) - all applied successfully to OpenMetadata."
-                })
-            else:
-                st.warning(f"⚠️ {successful} succeeded, {failed} failed out of {total} total.")
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": f"⚠️ Human approved {total} action(s) - {successful} succeeded, {failed} failed."
+                    "content": f"❌ Failed to execute actions: {str(e)}"
                 })
             
             # Mark as processed and clear pending actions
@@ -669,6 +675,9 @@ def main():
     # Render sidebar
     render_sidebar()
     
+    # Render approval gate prominently if there are pending actions
+    render_approval_gate()
+    
     # Main content area with tabs
     tab1, tab2, tab3, tab4 = st.tabs(["💬 Chat", "🎭 Swarm Theater", "📈 Execution DAG", "📋 Audit"])
     
@@ -684,8 +693,7 @@ def main():
     with tab4:
         render_audit_tab()
     
-    # Render approval gate if there are pending approvals
-    render_approval_gate()
+
 
 
 if __name__ == "__main__":
