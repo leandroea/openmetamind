@@ -72,14 +72,26 @@ class MiniMaxJsonOutputParser(JsonOutputParser):
         # Use strip_think to remove all chain-of-thought blocks
         text = strip_think(text)
         
+        # Validate text is not empty after stripping
+        if not text or text.isspace():
+            raise ValueError(f"LLM returned empty content after stripping. Raw: {repr(raw_text[:200])}")
+        
         # Remove remaining special tokens
         text = re.sub(r'<\|im_end\|>', '', text)
         text = re.sub(r'<\|[^|]+\|>', '', text)
+        
+        # Validate again after token removal
+        if not text or text.isspace():
+            raise ValueError(f"Text became empty after token removal. Raw: {repr(raw_text[:200])}")
         
         # Look for JSON object or array
         json_start = text.find('{')
         if json_start == -1:
             json_start = text.find('[')
+        
+        if json_start == -1:
+            # No JSON found at all - raise error with full text
+            raise ValueError(f"No JSON found in response. Text: {repr(text[:500])}")
         
         if json_start != -1:
             text = text[json_start:]
