@@ -89,6 +89,7 @@ class SwarmRunner:
         findings = final_state.get("findings", [])
         agent_statuses = final_state.get("agent_statuses", {})
         approved_actions = final_state.get("approved_actions", [])
+        pending_human_actions = final_state.get("pending_human_actions", [])
         execution_results = final_state.get("action_results")
         
         # If coordinator_response is None but we have findings, generate a summary
@@ -169,6 +170,7 @@ class SwarmRunner:
             "coordinator_response": coordinator_response,
             "blackboard_summary": blackboard_summary,
             "approved_actions": approved_actions,
+            "pending_human_actions": pending_human_actions,
             "execution_results": execution_results
         }
 

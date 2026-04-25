@@ -155,6 +155,12 @@ def init_session_state():
         st.session_state.blackboard = {"findings": [], "conflicts": [], "agent_statuses": {}}
     if "pending_approvals" not in st.session_state:
         st.session_state.pending_approvals = []
+    if "pending_human_actions" not in st.session_state:
+        st.session_state.pending_human_actions = []
+    if "last_swarm_state" not in st.session_state:
+        st.session_state.last_swarm_state = None
+    if "human_actions_processed" not in st.session_state:
+        st.session_state.human_actions_processed = False
     if "execution_plan" not in st.session_state:
         st.session_state.execution_plan = None
     if "is_running" not in st.session_state:
@@ -358,6 +364,8 @@ def render_chat_tab():
         
         if result:
             st.session_state.session_id = result.get("session_id")
+            st.session_state.last_swarm_state = result
+            st.session_state.human_actions_processed = False
             
             # Update blackboard
             if "blackboard_summary" in result:
@@ -368,13 +376,15 @@ def render_chat_tab():
                     "agent_statuses": summary.get("agent_statuses", {})
                 }
             
-            # Update pending approvals
+            # Update pending approvals and human actions
             st.session_state.pending_approvals = result.get("approved_actions", [])
+            st.session_state.pending_human_actions = result.get("pending_human_actions", [])
             
             # Add coordinator response
             response_text = result.get("coordinator_response", "The swarm has completed its analysis.")
-            if result.get("approved_actions"):
-                response_text += f"\n\n📋 **{len(result['approved_actions'])} actions pending approval**"
+            pending = st.session_state.pending_human_actions
+            if pending:
+                response_text += f"\n\n📋 **{len(pending)} actions pending human approval**"
             
             st.session_state.messages.append({"role": "assistant", "content": response_text})
         else:
@@ -526,59 +536,109 @@ def render_audit_tab():
 
 
 def render_approval_gate():
-    """Render the sticky approval gate when there are pending approvals."""
-    pending = st.session_state.pending_approvals
+    """
+    Render the human approval panel when there are pending actions.
+    
+    Requirements:
+    1. Check for pending_human_actions in session state
+    2. Display action type, target entity, proposed change preview, confidence
+    3. "Approve All" and "Reject All" buttons
+    4. On Approve: call execute_pending_actions, show success/warning, clear actions
+    5. On Reject: clear actions, show info message
+    6. Prevent double-execution using human_actions_processed flag
+    """
+    # Check if we have pending human actions
+    if "last_swarm_state" not in st.session_state:
+        return
+    
+    pending = st.session_state.get("pending_human_actions", [])
+    
+    # If already processed, don't show the panel
+    if st.session_state.get("human_actions_processed", False):
+        return
     
     if not pending:
         return
     
     st.markdown("---")
-    st.markdown("### 📋 Action Approval Required")
+    st.markdown("### 📋 Pending Human Approval")
     
     # Info banner
-    st.info(f"⚠️ **{len(pending)} actions require your approval before execution.**")
+    st.info(f"⚠️ **{len(pending)} action(s) require your approval before execution.**")
     
-    # Show pending actions in expanders
+    # Show each pending action with details
     for i, action in enumerate(pending):
-        with st.expander(f"Action {i+1}: {action.get('action_type', 'unknown')} on {action.get('entity_fqn', 'unknown')}"):
-            st.json(action)
+        action_type = action.get("action_type", "UNKNOWN")
+        entity_fqn = action.get("entity_fqn", "unknown")
+        parameters = action.get("parameters", {})
+        description = parameters.get("description", "")
+        confidence = parameters.get("confidence", 0.0)
+        
+        # Format action type for display
+        action_type_display = action_type.replace("_", " ").title()
+        
+        # Truncate description if too long
+        if len(description) > 100:
+            description_preview = description[:100] + "..."
+        else:
+            description_preview = description
+        
+        confidence_badge = get_confidence_badge(confidence)
+        
+        with st.expander(f"Action {i+1}: {action_type_display} on {entity_fqn}"):
+            st.markdown(f"**Type:** {action_type_display}")
+            st.markdown(f"**Target:** `{entity_fqn}`")
+            st.markdown(f"**Proposed Change:**")
+            st.markdown(f"> {description_preview}")
+            st.markdown(f"**Confidence:** {confidence:.0%} {confidence_badge}")
     
-    # Approval buttons
-    col1, col2, col3 = st.columns(3)
+    # Approval buttons side by side
+    col1, col2 = st.columns(2)
     
     with col1:
         if st.button("✅ Approve All", type="primary", use_container_width=True):
-            if st.session_state.session_id:
-                action_ids = [str(i) for i in range(len(pending))]
-                if approve_actions(st.session_state.session_id, action_ids, "approve"):
-                    st.success("All actions approved!")
-                    st.session_state.pending_approvals = []
-                    st.rerun()
-                else:
-                    st.error("Failed to approve actions")
+            # Import the execution function
+            from src.graph.action_executor import execute_pending_actions
+            
+            # Execute the pending actions
+            result = execute_pending_actions(pending)
+            
+            successful = result.get("successful_actions", 0)
+            failed = result.get("failed_actions", 0)
+            total = result.get("total_actions", 0)
+            
+            if failed == 0:
+                st.success(f"✅ {successful} action(s) applied successfully!")
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": f"✅ Human approved {successful} action(s) - all applied successfully to OpenMetadata."
+                })
+            else:
+                st.warning(f"⚠️ {successful} succeeded, {failed} failed out of {total} total.")
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": f"⚠️ Human approved {total} action(s) - {successful} succeeded, {failed} failed."
+                })
+            
+            # Mark as processed and clear pending actions
+            st.session_state.human_actions_processed = True
+            st.session_state.pending_human_actions = []
+            st.session_state.pending_approvals = []
+            st.rerun()
     
     with col2:
         if st.button("❌ Reject All", type="secondary", use_container_width=True):
-            if st.session_state.session_id:
-                action_ids = [str(i) for i in range(len(pending))]
-                if approve_actions(st.session_state.session_id, action_ids, "reject"):
-                    st.info("All actions rejected.")
-                    st.session_state.pending_approvals = []
-                    st.rerun()
-                else:
-                    st.error("Failed to reject actions")
-    
-    with col3:
-        if st.button("🔄 Refresh Status", use_container_width=True):
-            if st.session_state.session_id:
-                status = get_swarm_status(st.session_state.session_id)
-                if status:
-                    st.session_state.blackboard = {
-                        "findings": status.get("blackboard", {}).get("findings", []),
-                        "conflicts": status.get("blackboard", {}).get("conflicts", []),
-                        "agent_statuses": status.get("blackboard", {}).get("agent_statuses", {})
-                    }
-                    st.rerun()
+            st.info("Actions rejected. No changes will be made to OpenMetadata.")
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "❌ Human rejected all pending actions. No changes made."
+            })
+            
+            # Mark as processed and clear pending actions
+            st.session_state.human_actions_processed = True
+            st.session_state.pending_human_actions = []
+            st.session_state.pending_approvals = []
+            st.rerun()
 
 
 def main():
