@@ -604,7 +604,8 @@ def render_approval_gate():
         entity_fqn = action.get("target_entity") or action.get("entity_fqn", "unknown")
         parameters = action.get("parameters", {})
         description = strip_think(parameters.get("description", ""))
-        confidence = parameters.get("confidence", 0.0)
+        # Confidence is a top-level field in ProposedAction, not in parameters
+        confidence = action.get("confidence", parameters.get("confidence", 0.0))
         
         # Format action type for display
         action_type_display = action_type.replace("_", " ").title()
