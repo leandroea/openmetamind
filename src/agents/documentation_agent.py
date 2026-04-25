@@ -283,28 +283,37 @@ class DocumentationAgent(SwarmAgent):
             column_list = "\nColumns:\n" + "\n".join(col_lines)
         
         tags_str = ", ".join(context.get("tags", [])) if context.get("tags") else "None"
+        column_names = ", ".join([c.get("name", "") for c in context.get("columns", [])[:5]])
         
-        prompt = f"""Generate a single-sentence, business-friendly description for this table:
+        prompt = f"""You are a data documentation expert. Generate a single-sentence business description for this table.
 
-Table: {context.get('displayName', context.get('name', 'Unknown'))}
+Table name: {context.get('displayName', context.get('name', 'Unknown'))}
+Database: {context.get('database', 'Unknown')}
 Tags: {tags_str}
-Owner: {context.get('owner', 'Unknown') or 'Unknown'}{column_list}
+Columns: {column_names}
 
-Respond with ONLY the description text, no preamble or formatting. Be concise and specific about what business data this table contains. If there's insufficient information, respond with "Description unavailable." """
+Rules:
+- ONE sentence only
+- Describe what kind of data this table likely contains based on its name and database
+- Do NOT say "unavailable" or "unknown"
+- Do NOT explain your reasoning
+- Output ONLY the final description text
 
+Example: "This table stores customer transaction records with product details and timestamps."
+
+Your description:"""
+        
         try:
             response = await llm.ainvoke(prompt)
             description = response.content if hasattr(response, 'content') else str(response)
             
             # Validate response
             description = description.strip()
-            logger.info(f"LLM generated description: '{description}' (length: {len(description)})")
             
-            # Only return low confidence for explicit "unavailable" or empty responses
-            if not description or "unavailable" in description.lower():
-                return description, 0.3
+            # Confidence 0.0 for "unavailable" or too-short descriptions
+            if "unavailable" in description.lower() or len(description) < 15:
+                return description, 0.0
             
-            # Any other successfully generated description gets at least 0.7 confidence
             return description, 0.85
             
         except Exception as e:
