@@ -629,9 +629,18 @@ class OpenMetadataMCPClient:
         Returns:
             Result of the update operation
         """
-        # Use patch_entity with JSONPatch to update description
+        # Check if description already exists to determine correct JSON Patch operation
+        # Use "add" if field doesn't exist, "replace" if it does (RFC 6902 compliant)
+        try:
+            entity_details = await self.get_entity_details(entity_type, fqn)
+            has_description = entity_details.get("description") is not None
+        except Exception:
+            # If we can't fetch details, assume field doesn't exist and use "add"
+            has_description = False
+        
+        op = "replace" if has_description else "add"
         patch = [
-            {"op": "replace", "path": "/description", "value": description}
+            {"op": op, "path": "/description", "value": description}
         ]
         return await self.patch_entity(entity_type, fqn, patch)
 
