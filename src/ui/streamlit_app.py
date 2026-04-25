@@ -358,6 +358,11 @@ def render_chat_tab():
     if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
         user_input = st.session_state.messages[-1]["content"]
         
+        # Reset approval state for new swarm run
+        st.session_state.human_actions_processed = False
+        st.session_state.pending_human_actions = []
+        st.session_state.pending_approvals = []
+        
         # Add assistant thinking message
         with st.chat_message("assistant"):
             with st.spinner("🧠 Analyzing your request..."):
@@ -576,6 +581,14 @@ def render_approval_gate():
     
     if not pending:
         return
+    
+    st.markdown("""
+    <div style="background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%); 
+                padding: 16px; border-radius: 12px; margin-bottom: 16px; color: white;">
+        <h4 style="margin: 0;">⏳ Human Approval Required</h4>
+        <p style="margin: 4px 0 0 0;">The swarm has proposed actions that need your approval before execution.</p>
+    </div>
+    """, unsafe_allow_html=True)
     
     st.markdown("---")
     st.markdown("### 📋 Pending Human Approval")
