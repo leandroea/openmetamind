@@ -389,7 +389,7 @@ Your description:"""
                     target_entity=None,
                     summary="No undocumented entities found",
                     details={"databases_searched": [database] if database else ["default"]},
-                    confidence=0.0,
+                    confidence=1.0,  # Task completed successfully - nothing to document
                     proposed_actions=[],
                     mcp_tool_calls=[],
                     llm_reasoning="The documentation agent found no entities missing descriptions."
