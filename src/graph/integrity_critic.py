@@ -113,6 +113,8 @@ class IntegrityCritic:
         Returns:
             Dictionary with state updates including critic review and routing decision
         """
+        logger.info(f"Integrity Critic: Called with {len(state.get('findings', []))} findings")
+        
         blackboard = state.get("blackboard", {})
         findings_raw = state.get("findings", [])  # Findings accumulated at top level via operator.add
         
@@ -286,5 +288,7 @@ class IntegrityCritic:
         
         if critic_review.approved_actions:
             updates["pending_human_actions"] = [action.model_dump() for action in critic_review.approved_actions]
+        
+        logger.info(f"Integrity Critic: Decision = {decision.value}, next = {next_step}, approved_actions = {len(critic_review.approved_actions)}, escalated_actions = {len(critic_review.escalated_actions)}")
         
         return updates

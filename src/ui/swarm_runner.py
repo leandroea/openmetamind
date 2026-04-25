@@ -70,6 +70,13 @@ class SwarmRunner:
         finally:
             loop.close()
         
+        # Log final state keys and pending actions
+        logger.info(f"Final state keys: {list(final_state.keys())}")
+        if "pending_human_actions" in final_state:
+            logger.info(f"Pending human actions: {len(final_state['pending_human_actions'])}")
+        if "approved_actions" in final_state:
+            logger.info(f"Approved actions: {len(final_state['approved_actions'])}")
+        
         # Process results
         return self._process_result(final_state, session_id)
     
