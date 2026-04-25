@@ -174,9 +174,12 @@ class IntegrityCritic:
         if not findings_by_entity:
             logger.info("No actionable findings to review — returning AUTO_APPROVE")
             critic_review = CriticReview(
+                findings_reviewed=0,
+                conflicts_detected=0,
                 decision=CriticDecision.AUTO_APPROVE,
                 reasoning="No actionable findings to review",
                 approved_actions=[],
+                rejected_actions=[],
                 escalated_actions=[],
                 conflicts=[]
             )
