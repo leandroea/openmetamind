@@ -185,8 +185,7 @@ class Coordinator:
             intent = intent_result.get("intent", "clarify")
             reasoning = intent_result.get("reasoning", "")
             suggested_clarification = intent_result.get("suggested_clarification", "")
-            
-            except Exception as e:
+        except Exception as e:
                 logger.error(f"Intent classification failed: {str(e)}")
                 logger.error(f"Intent classification traceback: {traceback.format_exc()}")
                 # Fallback to clarification if intent classification fails
