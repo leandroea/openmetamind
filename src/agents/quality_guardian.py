@@ -93,12 +93,16 @@ class QualityGuardian(SwarmAgent):
         
         # Extract table FQN from task if not in inputs
         if not table_fqn:
-            # Simple regex to extract FQN-like patterns from task
             import re
-            fqn_pattern = r'[a-zA-Z0-9_.]+\\.[a-zA-Z0-9_.]+\\.[a-zA-Z0-9_.]+'
-            matches = re.findall(fqn_pattern, task)
-            if matches:
-                table_fqn = matches[0]
+            # Look for patterns like "table_name", "table X", or FQN patterns
+            fqn_match = re.search(r"(?:table\s+['\"]?)?([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+){2,})", task, re.IGNORECASE)
+            if fqn_match:
+                table_fqn = fqn_match.group(1)
+            else:
+                # Try simple table name - look for snake_case or camelCase identifiers (min 5 chars)
+                simple_match = re.search(r"([a-zA-Z0-9_]{5,})", task)
+                if simple_match:
+                    table_fqn = simple_match.group(1)
         
         # If we still don't have a table, we can't do much
         if not table_fqn:

@@ -215,6 +215,54 @@ class DocumentationAgent(SwarmAgent):
         
         return undocumented
     
+    async def _search_specific_table(self, mcp_client, table_name: str) -> List[Dict[str, Any]]:
+        """
+        Search for a specific table by name, return it if undocumented.
+        
+        Args:
+            mcp_client: MCP client for OpenMetadata
+            table_name: Table name or FQN to search for
+            
+        Returns:
+            List of undocumented entities matching the table name
+        """
+        undocumented = []
+        
+        try:
+            async with mcp_client as client:
+                search_result = await client.search_metadata_all(
+                    query=table_name,
+                    entity_type="table",
+                    max_results=10
+                )
+                
+                entities = search_result.get("results", [])
+                
+                for entity in entities:
+                    fqn = entity.get("fullyQualifiedName", "")
+                    description = entity.get("description", "FIELD_MISSING")
+                    
+                    # Only include if it matches the requested table
+                    if table_name.lower() in fqn.lower():
+                        if self._is_missing_description(description, entity_name=fqn):
+                            context = {
+                                "name": fqn,
+                                "displayName": entity.get("displayName", fqn),
+                                "description": description,
+                                "database": entity.get("database", {}).get("displayName") if isinstance(entity.get("database"), dict) else None,
+                                "service": entity.get("service", {}).get("displayName") if isinstance(entity.get("service"), dict) else None,
+                                "tags": [t.get("tagFQN", "").split(".")[-1] for t in entity.get("tags", [])],
+                                "columns": entity.get("columns", [])
+                            }
+                            undocumented.append(context)
+                            
+                logger.info(f"_search_specific_table found {len(undocumented)} matching entities for '{table_name}'")
+                
+        except Exception as e:
+            logger.warning(f"Error searching for specific table '{table_name}': {e}")
+        
+        return undocumented
+    
     async def _gather_context(self, entity_fqn: str, mcp_client) -> Dict[str, Any]:
         """
         Step B - Gather detailed context for an entity.
@@ -370,6 +418,16 @@ Your description:"""
         # Check if we have a list of tables from a previous agent
         table_list = inputs.get("table_list", []) if inputs else []
         
+        # Check for specific table name in task (FQN pattern with dots)
+        specific_table = None
+        import re
+        # Look for FQN patterns like "database.schema.table" or "service.db.table"
+        fqn_match = re.search(r'([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+){2,})', task)
+        if fqn_match:
+            specific_table = fqn_match.group(1)
+        elif table_name and "." in table_name:
+            specific_table = table_name
+        
         try:
             # Step A - Discover undocumented entities
             if table_list:
@@ -378,6 +436,10 @@ Your description:"""
                     context = await self._gather_context(table_fqn, mcp_client)
                     if self._is_missing_description(context.get("description", "")):
                         undocumented.append(context)
+            elif specific_table:
+                # Search for specific table by name (has dots = FQN pattern)
+                logger.info(f"Searching for specific table: {specific_table}")
+                undocumented = await self._search_specific_table(mcp_client, specific_table)
             else:
                 # Build search query from context
                 search_query = table_name or database or "table"

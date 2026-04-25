@@ -220,9 +220,20 @@ User request: {user_request}
 Available agents:
 {agent_capabilities}
 
+IMPORTANT: When the user request mentions a specific table or entity (e.g., "the big_data_table_with_nested_columns table" or "sample_data.ecommerce_db.shopify.big_data_table_with_nested_columns"), you MUST:
+1. Include the table's fully qualified name (FQN) in the required_inputs of the subtask that will use it
+2. Use the format: "table_fqn: <full_fqn>" in required_inputs
+3. The discovering agent (catalog_scout) should produce output that the next agent can use
+
+Example:
+- Task: "Document the big_data_table_with_nested_columns table"
+- Subtask: {{"subtask_id": "discover_table", "agent_id": "catalog_scout", "task_description": "Find the big_data_table_with_nested_columns table", "required_inputs": [], "produces_output": "table_fqn"}}
+- Then documentation_agent with "required_inputs": ["table_fqn"]
+
 Examples:
 - Task: "Find all tables missing descriptions" -> catalog_scout first, then documentation_agent
 - Task: "Check data quality for customer_orders" -> catalog_scout first to find the table, then quality_guardian
+- Task: "Profile the big_data_table_with_nested_columns table" -> catalog_scout to find it, then quality_guardian with table_fqn
 """
         )
         
