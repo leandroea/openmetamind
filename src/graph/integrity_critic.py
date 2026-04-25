@@ -10,8 +10,11 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 import os
+import logging
 
 from ..models.state import SwarmState, AgentFinding, Conflict, CriticDecision, CriticReview, FindingAssessment, ActionType, ProposedAction
+
+logger = logging.getLogger(__name__)
 
 
 class IntegrityCritic:
