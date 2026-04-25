@@ -280,4 +280,11 @@ class IntegrityCritic:
         if critic_review.approved_actions:
             updates["approved_actions"] = [action.model_dump() for action in critic_review.approved_actions]
         
+        # Always expose pending human actions at top level for Streamlit UI
+        if critic_review.escalated_actions:
+            updates["pending_human_actions"] = [action.model_dump() for action in critic_review.escalated_actions]
+        
+        if critic_review.approved_actions:
+            updates["pending_human_actions"] = [action.model_dump() for action in critic_review.approved_actions]
+        
         return updates
