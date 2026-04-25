@@ -189,10 +189,10 @@ class Coordinator:
             except Exception as e:
                 logger.error(f"Intent classification failed: {str(e)}")
                 logger.error(f"Intent classification traceback: {traceback.format_exc()}")
-            # Fallback to clarification if intent classification fails
-            intent = "clarify"
-            reasoning = f"Intent classification failed: {str(e)}"
-            suggested_clarification = "Could you please clarify what you'd like me to help you with?"
+                # Fallback to clarification if intent classification fails
+                intent = "clarify"
+                reasoning = f"Intent classification failed: {str(e)}"
+                suggested_clarification = "Could you please clarify what you'd like me to help you with?"
         
         # Prepare state updates
         updates = {
