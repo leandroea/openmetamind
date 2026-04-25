@@ -18,6 +18,8 @@ load_dotenv()
 # Initialize logging
 from src.config import setup_logging
 setup_logging()
+
+from src.utils import strip_think
 import logging
 logger = logging.getLogger(__name__)
 
@@ -439,13 +441,13 @@ def render_swarm_theater_tab():
                     # Extract finding data
                     if isinstance(finding, dict):
                         agent_id = finding.get("agent_id", "unknown")
-                        summary = finding.get("summary", "No summary")
+                        summary = strip_think(finding.get("summary", "No summary"))
                         confidence = finding.get("confidence", 0.0)
                         timestamp = finding.get("timestamp", "")
                         finding_type = finding.get("finding_type", "other")
                     else:
                         agent_id = getattr(finding, "agent_id", "unknown")
-                        summary = getattr(finding, "summary", "No summary")
+                        summary = strip_think(getattr(finding, "summary", "No summary"))
                         confidence = getattr(finding, "confidence", 0.0)
                         timestamp = getattr(finding, "timestamp", "")
                         finding_type = getattr(finding, "finding_type", "other")
@@ -601,7 +603,7 @@ def render_approval_gate():
         action_type = action.get("action_type", "UNKNOWN")
         entity_fqn = action.get("target_entity") or action.get("entity_fqn", "unknown")
         parameters = action.get("parameters", {})
-        description = parameters.get("description", "")
+        description = strip_think(parameters.get("description", ""))
         confidence = parameters.get("confidence", 0.0)
         
         # Format action type for display

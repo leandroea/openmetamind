@@ -10,6 +10,7 @@ from typing import Dict, Any, List
 from .base import SwarmAgent, Capability
 from ..models.state import AgentFinding, ProposedAction, ActionType
 from ..mcp.client import get_mcp_client
+from ..utils import strip_think
 
 logger = logging.getLogger(__name__)
 
@@ -307,6 +308,9 @@ Your description:"""
         try:
             response = await llm.ainvoke(prompt)
             description = response.content if hasattr(response, 'content') else str(response)
+            
+            # Sanitize: strip chain-of-thought tokens before using LLM output
+            description = strip_think(description)
             
             # Validate response
             description = description.strip()

@@ -17,6 +17,7 @@ import re
 from ..models.plan import Subtask, ExecutionPlan
 from ..models.state import SwarmState
 from ..agents.registry import AgentRegistry
+from ..utils import strip_think
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +42,10 @@ class MiniMaxJsonOutputParser(JsonOutputParser):
         char_repr = [f"'{c}'({ord(c)})" for c in first_50]
         logger.info(f"Planner: First 50 chars with ordinals: {char_repr}")
         
-        # Remove thinking tags and their content (various formats)
-        text = re.sub(r'<think>(.*?)<\/think>', '', text, flags=re.DOTALL)
-        text = re.sub(r'<think>(.*?)', '', text, flags=re.DOTALL)  # Also handles unclosed tags
+        # Use strip_think to remove all chain-of-thought blocks
+        text = strip_think(text)
+        
+        # Remove remaining special tokens
         text = re.sub(r'<\|im_end\|>', '', text)
         text = re.sub(r'<\|[^|]+\|>', '', text)
         
