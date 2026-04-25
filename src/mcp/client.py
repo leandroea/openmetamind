@@ -604,7 +604,7 @@ class OpenMetadataMCPClient:
         description: str
     ) -> Dict[str, Any]:
         """
-        Update the description of an entity.
+        Update the description of an entity using patch_entity.
         
         Args:
             fqn: Fully qualified name of the entity
@@ -614,11 +614,11 @@ class OpenMetadataMCPClient:
         Returns:
             Result of the update operation
         """
-        return await self._call_mcp_tool("update_description", {
-            "fqn": fqn,
-            "entityType": entity_type,
-            "description": description
-        })
+        # Use patch_entity with JSONPatch to update description
+        patch = [
+            {"op": "replace", "path": "/description", "value": description}
+        ]
+        return await self.patch_entity(entity_type, fqn, patch)
 
     async def add_owner(
         self,
