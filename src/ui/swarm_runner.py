@@ -171,7 +171,8 @@ class SwarmRunner:
             "blackboard_summary": blackboard_summary,
             "approved_actions": approved_actions,
             "pending_human_actions": pending_human_actions,
-            "execution_results": execution_results
+            "execution_results": execution_results,
+            "final_state": final_state  # Return full state for UI inspection
         }
 
 

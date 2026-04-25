@@ -364,7 +364,7 @@ def render_chat_tab():
         
         if result:
             st.session_state.session_id = result.get("session_id")
-            st.session_state.last_swarm_state = result
+            st.session_state.last_swarm_state = result.get("final_state")
             st.session_state.human_actions_processed = False
             
             # Update blackboard
@@ -376,9 +376,10 @@ def render_chat_tab():
                     "agent_statuses": summary.get("agent_statuses", {})
                 }
             
-            # Update pending approvals and human actions
+            # Update pending approvals and human actions from full state
+            final_state = result.get("final_state", {})
             st.session_state.pending_approvals = result.get("approved_actions", [])
-            st.session_state.pending_human_actions = result.get("pending_human_actions", [])
+            st.session_state.pending_human_actions = result.get("pending_human_actions", final_state.get("pending_human_actions", []))
             
             # Add coordinator response
             response_text = result.get("coordinator_response", "The swarm has completed its analysis.")
