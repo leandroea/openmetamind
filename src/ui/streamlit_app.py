@@ -623,7 +623,13 @@ def render_approval_gate():
             st.markdown(f"**Target:** `{entity_fqn}`")
             st.markdown(f"**Proposed Change:**")
             st.markdown(f"> {description_preview}")
-            st.markdown(f"**Confidence:** {confidence:.0%} {confidence_badge}")
+            # Show confidence with emoji indicator, no HTML badge
+            if confidence >= 0.85:
+                st.markdown(f"**Confidence:** {confidence:.0%} ✅ HIGH")
+            elif confidence >= 0.7:
+                st.markdown(f"**Confidence:** {confidence:.0%} ⚠️ MED")
+            else:
+                st.markdown(f"**Confidence:** {confidence:.0%} ❌ LOW")
     
     # Approval buttons side by side
     col1, col2 = st.columns(2)
