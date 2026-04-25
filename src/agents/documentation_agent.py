@@ -121,6 +121,7 @@ class DocumentationAgent(SwarmAgent):
         "none",
         "null",
         "undefined",
+        "field_missing",
     }
 
     def _is_missing_description(self, description: str, entity_name: str = None) -> bool:
@@ -191,7 +192,7 @@ class DocumentationAgent(SwarmAgent):
                 
                 for entity in entities:
                     name = entity.get("fullyQualifiedName", entity.get("name", ""))
-                    description = entity.get("description", "")
+                    description = entity.get("description", "FIELD_MISSING")
                     
                     if self._is_missing_description(description, entity_name=name):
                         # Gather context for this entity
