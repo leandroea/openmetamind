@@ -33,14 +33,25 @@ class MiniMaxJsonOutputParser(JsonOutputParser):
     
     def parse_result(self, result, *, partial: bool = False):
         """Extract clean JSON from LLM response and parse it."""
-        text = result.text if hasattr(result, 'text') else str(result)
+        # Extract raw text from LLM response properly
+        if hasattr(result, 'content'):
+            # This is an AIMessage or similar with content attribute
+            raw_text = result.content
+        elif hasattr(result, 'text'):
+            # Some result types have text attribute
+            raw_text = result.text
+        else:
+            # Last resort - string representation (may include wrapper chars)
+            raw_text = str(result)
+            logger.warning(f"Planner: Used str(result) fallback, got: {raw_text[:100]}...")
         
+        # Validate we got a string
+        if not isinstance(raw_text, str):
+            raise ValueError(f"Expected string from LLM, got {type(raw_text)}")
+        
+        text = raw_text
         logger.info(f"Planner: Raw LLM response length: {len(text)}")
-        
-        # Debug: log first 50 chars with their ordinal values to detect hidden characters
-        first_50 = text[:50]
-        char_repr = [f"'{c}'({ord(c)})" for c in first_50]
-        logger.info(f"Planner: First 50 chars with ordinals: {char_repr}")
+        logger.info(f"Planner: Raw LLM text preview: {text[:200]}...")
         
         # Use strip_think to remove all chain-of-thought blocks
         text = strip_think(text)
@@ -120,21 +131,27 @@ class MiniMaxJsonOutputParser(JsonOutputParser):
                 parsed = json.loads(text_fixed)
                 return parsed
             except json.JSONDecodeError as e3:
-                logger.error(f"Planner: All JSON parsing attempts failed. Final text: '{text_fixed}'")
-                # Return a minimal valid plan so the workflow can continue
-                return {
-                    "subtasks": [{
-                        "subtask_id": "fallback_discovery",
-                        "agent_id": "catalog_scout",
-                        "task_description": "Discover entities as fallback due to parse error",
-                        "required_inputs": [],
-                        "produces_output": "entities",
-                        "dependencies": [],
-                        "max_retries": 1,
-                        "timeout_seconds": 60
-                    }],
-                    "estimated_duration": "30s"
-                }
+                logger.error(f"Planner: All JSON parsing attempts failed. Final text: '{text_fixed[:500]}'")
+                # DEV MODE: Raise error instead of silent fallback to aid debugging
+                raise RuntimeError(f"Planner failed to produce valid JSON. Parse error: {e3}. Text: {text_fixed[:300]}...")
+        
+    def _extract_text_from_result(self, result) -> str:
+        """Extract text from LLM result object.
+        
+        Handles various LangChain result formats:
+        - AIMessage: result.content
+        - ChatResult: result.generations[0][0].text
+        - Raw string: result
+        """
+        if hasattr(result, 'content'):
+            return result.content
+        if hasattr(result, 'text'):
+            return result.text
+        if hasattr(result, 'generations') and result.generations:
+            first_gen = result.generations[0][0]
+            if hasattr(first_gen, 'text'):
+                return first_gen.text
+        return str(result)
 
 
 class Planner:
