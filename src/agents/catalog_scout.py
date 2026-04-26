@@ -100,18 +100,33 @@ class CatalogScout(SwarmAgent):
                     
                     entities = result.get("results", [])
                     if not entities:
+                        logger.info(f"[CatalogScout] Pagination: No entities returned at offset {current_offset}, stopping")
                         break  # No more results
                     
                     all_entities.extend(entities)
+                    fetched_count = len(entities)
                     
                     # Check pagination state
                     has_more = result.get("hasMore", False)
                     total_found = result.get("totalFound", 0)
                     
-                    logger.info(f"[CatalogScout] Pagination fetch for {entity_type}: offset={current_offset}, fetched={len(entities)}, total={total_found}, has_more={has_more}")
+                    logger.info(f"[CatalogScout] Pagination fetch for {entity_type}: offset={current_offset}, fetched={fetched_count}, cumulative={len(all_entities)}, totalFound={total_found}, has_more={has_more}")
                     
-                    # Stop if no more results
-                    if not has_more or len(all_entities) >= total_found:
+                    # Stop conditions:
+                    # 1. No more pages (has_more=False)
+                    # 2. We've fetched at least totalFound (even if has_more is still True)
+                    # 3. Last page was partial (less than page_size) meaning end of results
+                    if not has_more:
+                        logger.info(f"[CatalogScout] Pagination: has_more=False, stopping")
+                        break
+                    
+                    if total_found > 0 and len(all_entities) >= total_found:
+                        logger.info(f"[CatalogScout] Pagination: fetched {len(all_entities)} >= totalFound {total_found}, stopping")
+                        break
+                    
+                    # If we got a partial page (less than requested), we've reached the end
+                    if fetched_count < page_size:
+                        logger.info(f"[CatalogScout] Pagination: partial page ({fetched_count} < {page_size}), stopping")
                         break
                     
                     # Move to next page
