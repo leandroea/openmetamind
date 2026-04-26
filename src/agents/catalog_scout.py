@@ -274,24 +274,37 @@ class CatalogScout(SwarmAgent):
             tables = table_result[0] if isinstance(table_result, tuple) else table_result.get("hits", table_result.get("results", []))
             table_count = len(tables) if isinstance(tables, list) else 0
             
-            # Extract table FQNs for blackboard
+            # Also fetch views - they are separate entity type in OpenMetadata
+            view_result = await self._fetch_all_entities_with_pagination(mcp_client, "view", max_results=20000)
+            views = view_result[0] if isinstance(view_result, tuple) else view_result.get("hits", view_result.get("results", []))
+            view_count = len(views) if isinstance(views, list) else 0
+            
+            # Combine tables and views
+            all_entities = list(tables) + list(views)
+            total_entity_count = len(all_entities)
+            
+            logger.info(f"[CatalogScout] Found {table_count} tables and {view_count} views = {total_entity_count} total entities")
+            
+            # Extract table/view FQNs for blackboard
             all_table_fqns = []
-            for t in tables:
+            for t in all_entities:
                 fqn = t.get("fullyQualifiedName", t.get("name", ""))
                 if fqn:
                     all_table_fqns.append(fqn)
             
-            sample_tables = [t.get("name", "unknown") for t in tables[:50]]
-            logger.info(f"[CatalogScout] Listed {table_count} tables with max pagination")
+            sample_tables = [t.get("name", "unknown") for t in all_entities[:50]]
+            logger.info(f"[CatalogScout] Listed {total_entity_count} tables/views with max pagination")
             
             summary = (
                 f"✅ **Complete Table List**\n\n"
-                f"Found **{table_count:,} tables** in the OpenMetadata catalog\n\n"
+                f"Found **{total_entity_count:,} tables/views** in the OpenMetadata catalog\n\n"
                 f"First 50 tables: {', '.join(sample_tables[:50])}\n\n"
                 f"(Use 'get all table FQNs' for complete list)"
             )
             details = {
                 "table_count": table_count,
+                "view_count": view_count,
+                "total_count": total_entity_count,
                 "all_table_fqns": all_table_fqns,
                 "sample_tables": sample_tables
             }
@@ -307,7 +320,7 @@ class CatalogScout(SwarmAgent):
                 target_entity=None,
                 proposed_actions=[],
                 mcp_tool_calls=[],
-                llm_reasoning=f"Fetched all {table_count:,} tables with full pagination. No database/schema hierarchy overhead."
+                llm_reasoning=f"Fetched {table_count} tables and {view_count} views = {total_entity_count} total entities with full pagination. No database/schema hierarchy overhead."
             )
             
         except Exception as e:
@@ -394,19 +407,28 @@ class CatalogScout(SwarmAgent):
             logger.info(f"[CatalogScout] Found {schema_count} schemas with full pagination")
 
             # 3. Tables - use higher limit
-            table_result = await self._fetch_all_entities_with_pagination(mcp_client, "table", max_results=2000)
+            table_result = await self._fetch_all_entities_with_pagination(mcp_client, "table", max_results=20000)
             tables = table_result[0] if isinstance(table_result, tuple) else table_result.get("hits", table_result.get("results", []))
             table_count = len(tables) if isinstance(tables, list) else 0
             
-            # Extract table FQNs for blackboard
+            # 3b. Also fetch views (separate entity type in OpenMetadata)
+            view_result = await self._fetch_all_entities_with_pagination(mcp_client, "view", max_results=20000)
+            views = view_result[0] if isinstance(view_result, tuple) else view_result.get("hits", view_result.get("results", []))
+            view_count = len(views) if isinstance(views, list) else 0
+            
+            # Combine tables and views
+            all_entities = list(tables) + list(views)
+            total_entity_count = len(all_entities)
+            
+            # Extract table/view FQNs for blackboard
             all_table_fqns = []
-            for t in tables:
+            for t in all_entities:
                 fqn = t.get("fullyQualifiedName", t.get("name", ""))
                 if fqn:
                     all_table_fqns.append(fqn)
             
-            sample_tables = [t.get("name", "unknown") for t in tables[:30]]
-            logger.info(f"[CatalogScout] Found {table_count} tables with full pagination")
+            sample_tables = [t.get("name", "unknown") for t in all_entities[:30]]
+            logger.info(f"[CatalogScout] Found {table_count} tables and {view_count} views = {total_entity_count} total entities")
 
         except Exception as e:
             logger.error(f"[CatalogScout] Hierarchy discovery error: {e}", exc_info=True)
@@ -425,13 +447,13 @@ class CatalogScout(SwarmAgent):
             )
         
         # Build summary - standard hierarchy format
-        sample_tables = [t.get("name", "unknown") for t in tables[:30]]
+        sample_tables = [t.get("name", "unknown") for t in all_entities[:30]]
         summary = (
             f"✅ **Database Hierarchy Discovered**\n\n"
             f"• **Databases**: {db_count} total\n"
             f"  {', '.join(db_names[:8])}{' ...and ' + str(len(db_names) - 8) + ' more' if len(db_names) > 8 else ''}\n\n"
             f"• **Schemas**: {schema_count} total\n"
-            f"• **Tables**: {table_count:,} total in the catalog\n"
+            f"• **Tables/Views**: {table_count} tables + {view_count} views = {total_entity_count:,} total in the catalog\n"
             f"  Sample: {', '.join(sample_tables[:20]) if sample_tables else 'None'}"
         )
         details = {
@@ -439,6 +461,8 @@ class CatalogScout(SwarmAgent):
             "database_count": db_count,
             "schema_count": schema_count,
             "table_count": table_count,
+            "view_count": view_count,
+            "total_count": total_entity_count,
             "all_table_fqns": all_table_fqns,
             "sample_tables": sample_tables
         }
@@ -454,7 +478,7 @@ class CatalogScout(SwarmAgent):
             target_entity=None,
             proposed_actions=[],  # No actions for read-only list queries
             mcp_tool_calls=[],
-            llm_reasoning=f"Fetched {db_count} databases, {schema_count} schemas, and {table_count:,} tables with full pagination."
+            llm_reasoning=f"Fetched {db_count} databases, {schema_count} schemas, {table_count} tables, and {view_count} views = {total_entity_count} total entities with full pagination."
         )
     
     def _build_search_query(self, task: str, entity_type: str = "table") -> str:
