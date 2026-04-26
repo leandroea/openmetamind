@@ -150,8 +150,18 @@ class SwarmRunner:
                         if len(unique_names) > 30:
                             response_parts.append(f"- ... and {len(unique_names) - 30} more tables")
                     
-                    # Add summary parts
+                    # Deduplicate summary parts before adding (fixes duplicate hierarchy results)
+                    seen_summaries = set()
+                    unique_summaries = []
                     for s in summary_parts[:5]:
+                        # Use first 100 chars as key to detect duplicates
+                        summary_key = s[:100] if s else ""
+                        if summary_key and summary_key not in seen_summaries:
+                            seen_summaries.add(summary_key)
+                            unique_summaries.append(s)
+                    
+                    # Add unique summary parts
+                    for s in unique_summaries:
                         response_parts.append(f"\n{s}")
                     
                     coordinator_response = "\n".join(response_parts)

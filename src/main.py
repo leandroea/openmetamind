@@ -203,7 +203,17 @@ async def run_swarm(query: SwarmQuery, graph=Depends(get_graph)):
                             summary_parts.append(summary)
                 
                 if summary_parts:
-                    coordinator_response = "I found the following information:\n\n" + "\n".join(f"- {s}" for s in summary_parts)
+                    # Deduplicate summary parts before adding (fixes duplicate hierarchy results)
+                    seen_summaries = set()
+                    unique_summaries = []
+                    for s in summary_parts:
+                        # Use first 100 chars as key to detect duplicates
+                        summary_key = s[:100] if s else ""
+                        if summary_key and summary_key not in seen_summaries:
+                            seen_summaries.add(summary_key)
+                            unique_summaries.append(s)
+                    
+                    coordinator_response = "I found the following information:\n\n" + "\n".join(f"- {s}" for s in unique_summaries)
                     if len(findings) > 5:
                         coordinator_response += f"\n\n...and {len(findings) - 5} more findings."
                 else:
