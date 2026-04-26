@@ -387,8 +387,36 @@ Be concise but informative. Do not suggest actions - just explain what you obser
         
         try:
             async with mcp_client as client:
+                # Try get_entity_details first for full FQN
+                if "." in table_name and len(table_name.split(".")) >= 3:
+                    try:
+                        logger.info(f"[_search_specific_table] Trying get_entity_details for: {table_name}")
+                        details = await client.get_entity_details("table", table_name)
+                        if details:
+                            entity_data = details.get("entity", details)
+                            fqn = entity_data.get("fullyQualifiedName", table_name)
+                            desc = entity_data.get("description", "FIELD_MISSING")
+                            if self._is_missing_description(desc, entity_name=fqn):
+                                context = {
+                                    "name": fqn,
+                                    "displayName": entity_data.get("displayName", fqn),
+                                    "description": desc,
+                                    "database": entity_data.get("database", {}).get("displayName") if isinstance(entity_data.get("database"), dict) else None,
+                                    "service": entity_data.get("service", {}).get("displayName") if isinstance(entity_data.get("service"), dict) else None,
+                                    "tags": [t.get("tagFQN", "").split(".")[-1] for t in entity_data.get("tags", [])],
+                                    "columns": entity_data.get("columns", [])
+                                }
+                                undocumented.append(context)
+                                logger.info(f"[_search_specific_table] get_entity_details found: {fqn}")
+                                return undocumented  # Found via direct lookup
+                    except Exception as e:
+                        logger.info(f"[_search_specific_table] get_entity_details failed: {e}")
+                
+                # Fallback to search_metadata with just the table name part
+                table_part = table_name.split(".")[-1] if "." in table_name else table_name
+                logger.info(f"[_search_specific_table] Falling back to search for: {table_part}")
                 search_result = await client.search_metadata_all(
-                    query=table_name,
+                    query=table_part,
                     entity_type="table",
                     max_results=10
                 )
@@ -400,7 +428,7 @@ Be concise but informative. Do not suggest actions - just explain what you obser
                     description = entity.get("description", "FIELD_MISSING")
                     
                     # Only include if it matches the requested table
-                    if table_name.lower() in fqn.lower():
+                    if table_name.lower() in fqn.lower() or table_part.lower() in fqn.lower():
                         if self._is_missing_description(description, entity_name=fqn):
                             context = {
                                 "name": fqn,
@@ -590,6 +618,11 @@ Your description:"""
             specific_table = fqn_match.group(1)
         elif table_name and "." in table_name:
             specific_table = table_name
+        
+        # FIX: Check for table_fqn in inputs and try get_entity_details first
+        table_fqn = inputs.get("table_fqn") if inputs else None
+        if table_fqn and "." in table_fqn:
+            specific_table = table_fqn  # Use the FQN from inputs
         
         try:
             # Step A - Discover undocumented entities
