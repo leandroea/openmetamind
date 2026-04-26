@@ -76,10 +76,13 @@ class CatalogScout(SwarmAgent):
                 # Filter to get actual databases (not tables, functions, or other entities)
                 # Real database names are simple, short names - not verb phrases or long names
                 non_db_patterns = [
-                    "default", "information_schema", "pg_catalog", "sys", 
+                    # System databases - NOT actual user databases (skip these)
+                    "information_schema", "pg_catalog", "sys", 
                     "performance_schema", "mysql", "master", "tempdb", "model", "msdb",
+                    # Procedural/database function prefixes (likely not databases)
                     "calculate_", "delete_", "get_", "update_", "insert_", "transform_",
                     "drop_", "create_", "alter_", "exec_", "execute_",
+                    # Likely table/entity name prefixes  
                     "agent_", "fact_", "dim_", "marketing_", "global_", "ice_",
                     "_summary", "_metrics", "_daily", "_clean", "_address", "_location",
                     "_staff", "_events", "_line_item", "_order", "_sale", "_session",
@@ -87,7 +90,11 @@ class CatalogScout(SwarmAgent):
                     # Common table/entity names that shouldn't be databases
                     "Categories", "Comments", "Users", "Posts", "Products", 
                     "Orders", "Inventory", "Settings", "Config", "Logs",
-                    "Events", "Tasks", "Jobs", "History", "Archive"
+                    "Events", "Tasks", "Jobs", "History", "Archive",
+                    "Tags", "Permissions", "Roles", "Sessions", "Tokens",
+                    "Analytics", "Widgets", "Pages", "Views", "Metrics",
+                    # Plural forms common in data catalogs
+                    "dim(", "fact(", "agg_", "temp_"
                 ]
                 db_names = []
                 for d in databases:
@@ -334,8 +341,15 @@ class CatalogScout(SwarmAgent):
             database = inputs["database"]
         
         try:
-            # Check if this is a hierarchy task
-            if self._build_search_query(task) == "_build_hierarchy":
+            # Determine if this is a hierarchy task (only for the main "discover database hierarchy" task)
+            # Sub-tasks like "discover schemas" should NOT trigger hierarchy building - they use different logic
+            task_lower = task.lower()
+            is_hierarchy_task = (
+                "discover the database hierarchy" in task_lower or
+                "discover full database hierarchy" in task_lower
+            )
+            
+            if is_hierarchy_task:
                 return await self._build_hierarchy(task, mcp_client)
             
             # Use the MCP client to search for entities using keyword search
