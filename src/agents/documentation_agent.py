@@ -619,10 +619,24 @@ Your description:"""
         elif table_name and "." in table_name:
             specific_table = table_name
         
-        # FIX: Check for table_fqn in inputs and try get_entity_details first
-        table_fqn = inputs.get("table_fqn") if inputs else None
-        if table_fqn and "." in table_fqn:
-            specific_table = table_fqn  # Use the FQN from inputs
+        # FIX: Check for table_fqn/entity_fqn/table_name in inputs and use it
+        # The key may be any of these depending on what previous agent passed
+        table_fqn = (
+            inputs.get("table_fqn") or 
+            inputs.get("entity_fqn") or 
+            inputs.get("table_name") or 
+            inputs.get("entity_name") or
+            inputs.get("target_entity")
+        ) if inputs else None
+        
+        logger.info(f"[DocumentationAgent] Received inputs: {inputs}")
+        logger.info(f"[DocumentationAgent] Extracted table_fqn/entity_fqn: {table_fqn}")
+        
+        # If we have a specific table from inputs, use it directly
+        if table_fqn:
+            # Use the entity name or construct a search query
+            specific_table = table_fqn
+            logger.info(f"[DocumentationAgent] Using specific table from inputs: {specific_table}")
         
         try:
             # Step A - Discover undocumented entities
@@ -641,7 +655,43 @@ Your description:"""
                 search_query = table_name or database or "table"
                 undocumented = await self._discover_undocumented_entities(mcp_client, search_query)
             
-            # Edge case: No undocumented entities
+            # Edge case: No undocumented entities but we have a specific table - return its info anyway
+            if not undocumented and specific_table:
+                # Try to get the table info even if it has description
+                logger.info(f"[DocumentationAgent] Specific table '{specific_table}' found but may have description - gathering info anyway")
+                try:
+                    context = await self._gather_context(specific_table, mcp_client)
+                    if context.get("name"):
+                        # Return info about this table even if it has description
+                        desc = context.get("description", "")
+                        summary = f"Table: {context.get('displayName', specific_table)}"
+                        if desc and desc != "FIELD_MISSING":
+                            summary += f"\nDescription: {desc}"
+                        else:
+                            summary += "\nNo description available"
+                        
+                        # Get additional details
+                        db = context.get("database", "")
+                        service = context.get("service", "")
+                        if db or service:
+                            summary += f"\nDatabase: {db or 'N/A'}, Service: {service or 'N/A'}"
+                        
+                        return AgentFinding(
+                            agent_id=self.agent_id,
+                            subtask_id="describe_entity",
+                            task_description=task,
+                            finding_type="description",
+                            target_entity=specific_table,
+                            summary=summary,
+                            details=context,
+                            confidence=1.0,
+                            proposed_actions=[],
+                            mcp_tool_calls=[],
+                            llm_reasoning=f"Found and described table: {specific_table}"
+                        )
+                except Exception as e:
+                    logger.warning(f"[DocumentationAgent] Failed to gather context for {specific_table}: {e}")
+            
             if not undocumented:
                 return AgentFinding(
                     agent_id=self.agent_id,
