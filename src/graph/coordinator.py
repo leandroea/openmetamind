@@ -17,7 +17,6 @@ import traceback
 
 from ..models.state import SwarmState
 from ..agents.registry import get_agent_registry
-from ..utils import strip_think
 
 logger = logging.getLogger(__name__)
 
@@ -253,8 +252,7 @@ class Coordinator:
                     "user_query": user_query,
                     "conversation_history": history_str
                 })
-                answer_content = answer.content if hasattr(answer, 'content') else str(answer)
-                updates["coordinator_response"] = strip_think(answer_content)
+                updates["coordinator_response"] = answer.content if hasattr(answer, 'content') else str(answer)
             except Exception as e:
                 logger.error(f"Answer generation failed: {str(e)}")
                 logger.error(f"Answer generation traceback: {traceback.format_exc()}")
@@ -270,8 +268,7 @@ class Coordinator:
                     "user_query": user_query,
                     "conversation_history": history_str
                 })
-                clarification_content = clarification.content if hasattr(clarification, 'content') else str(clarification)
-                updates["coordinator_response"] = strip_think(clarification_content)
+                updates["coordinator_response"] = clarification.content if hasattr(clarification, 'content') else str(clarification)
             except Exception as e:
                 updates["coordinator_response"] = suggested_clarification or f"I'm not sure I understand. Could you please clarify what you'd like me to help you with?"
             

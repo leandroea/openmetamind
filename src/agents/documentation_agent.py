@@ -174,6 +174,7 @@ class DocumentationAgent(SwarmAgent):
             "understand the",
             "breakdown of",
             "nested",
+            "hierarchy",
         ]
         
         # Also check for negative documentation indicators
