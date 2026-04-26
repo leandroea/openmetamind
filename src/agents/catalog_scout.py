@@ -108,7 +108,10 @@ class CatalogScout(SwarmAgent):
                         "calculate_", "delete_", "get_", "update_", "insert_", "transform_",
                         "fact_", "dim_", "agent_", "metrics_", "summary", "_clean", "_address",
                         "categories", "comments", "users", "posts", "products", "orders",
-                        "generate_random_password", "customer_features", "dim(shop)"
+                        "generate_random_password", "customer_features", "dim(shop)",
+                        # Additional test/table-like patterns to exclude
+                        "global", "ice", "market", "marketing", "mortgage", "ice_global", 
+                        "icemarketdata", "global_market"
                     ]):
                         continue
 
@@ -148,7 +151,7 @@ class CatalogScout(SwarmAgent):
             summary = (
                 f"✅ **Database Hierarchy Discovered**\n\n"
                 f"• **Databases**: {db_count} total\n"
-                f"  {', '.join(db_names[:10])}{'...' if len(db_names) > 10 else ''}\n\n"
+                f"  {', '.join(db_names[:8])}{' ...and ' + str(len(db_names) - 8) + ' more' if len(db_names) > 8 else ''}\n\n"
                 f"• **Schemas**: {schema_count} total\n"
                 f"• **Tables**: ~{int(table_count_approx):,} in the catalog\n"
                 f"  Sample tables: {', '.join(sample_tables) if sample_tables else 'None sampled'}\n"
@@ -339,16 +342,32 @@ class CatalogScout(SwarmAgent):
             "what is ",
             "find the "  # Catches Planner-generated tasks like "Find the openmetadata-table-bench entity..."
         ]) or task_lower.startswith("describe ") or task_lower.startswith("find "):
-            logger.info(f"[CatalogScout] Detected specific entity task: {task} → returning simple finding so Coordinator routes to Documentation Agent")
+            # Extract entity name from task (e.g., "Find the openmetadata-table-bench" → "openmetadata-table-bench")
+            entity_name = task
+            for prefix in ["find the ", "describe ", "details of ", "schema of ", "what is the ", "what is "]:
+                if task_lower.startswith(prefix):
+                    entity_name = task[len(prefix):].strip()
+                    break
+            # Clean up entity name (remove trailing words like "entity", "table", "in the catalog")
+            for suffix in [" entity", " table", " in the catalog", " in openmetadata"]:
+                if entity_name.lower().endswith(suffix):
+                    entity_name = entity_name[:-len(suffix)].strip()
+            
+            logger.info(f"[CatalogScout] Detected specific entity task: {task} → extracted entity: {entity_name}")
             return AgentFinding(
                 agent_id=self.agent_id,
                 subtask_id="specific_entity_lookup",
                 task_description=task,
                 finding_type="description",  # Use valid enum value
-                summary=f"Catalog Scout identified entity: {task}",
-                details={"entity_name": task, "action": "pass_to_documentation"},
-                confidence=0.8,
-                target_entity=None
+                summary=f"Catalog Scout identified entity: {entity_name}",
+                details={
+                    "entity_name": entity_name,
+                    "table_name": entity_name,
+                    "entity_fqn": entity_name,
+                    "action": "pass_to_documentation"
+                },
+                confidence=0.9,
+                target_entity=entity_name  # Pass to next task via blackboard
             )
 
         # 3. Default fallback for other discovery tasks
