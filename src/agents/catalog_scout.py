@@ -356,29 +356,70 @@ class CatalogScout(SwarmAgent):
         is_specific_task = is_specific_task or task_lower.startswith("describe ") or task_lower.startswith("find ") or task_lower.startswith("locate ")
         
         if is_specific_task:
-            # Extract entity name from task
+            # Extract entity name from task - be more robust with various prefixes
             entity_name = task
-            for prefix in ["find the ", "describe ", "details of ", "schema of ", "what is the ", "what is ", "locate and identify the ", "discover the "]:
+            extracted = False
+            
+            # Try all known prefixes (order matters - longer first)
+            prefixes_to_try = [
+                "find and identify ",
+                "find the ",
+                "describe ",
+                "details of ",
+                "schema of ",
+                "what is the ",
+                "what is ",
+                "locate and identify the ",
+                "locate the ",
+                "discover the ",
+            ]
+            
+            for prefix in prefixes_to_try:
                 if task_lower.startswith(prefix):
                     entity_name = task[len(prefix):].strip()
+                    extracted = True
+                    logger.info(f"[CatalogScout] Extracted entity with prefix '{prefix}': '{entity_name}'")
                     break
             
+            # Fallback: if no prefix matched, search for openmetadata-table pattern anywhere in task
+            if not extracted:
+                import re
+                # Look for "openmetadata-table-" pattern which is a strong table name indicator
+                match = re.search(r'(openmetadata-table-\w+)', task_lower)
+                if match:
+                    entity_name = match.group(1)
+                    extracted = True
+                    logger.info(f"[CatalogScout] Extracted entity via pattern match: '{entity_name}'")
+            
+            # Last resort fallback: use the raw task if nothing else worked
+            if not extracted:
+                logger.warning(f"[CatalogScout] Could not extract entity name from task '{task}', using raw task")
+                entity_name = task
+            
             # Clean up entity name (remove trailing phrases like "entity in the OpenMetadata catalog", "table in the catalog", etc.)
-            # Handle multi-word suffixes
+            # Handle multi-word suffixes - be more aggressive
             suffixes_to_check = [
-                " entity in the OpenMetadata catalog",
-                " table in the OpenMetadata catalog", 
+                " in the catalog",
+                " in OpenMetadata catalog",
+                " in the OpenMetadata catalog",
                 " entity in the catalog",
-                " table in the catalog",
+                " entity in OpenMetadata catalog",
+                " entity in the OpenMetadata catalog",
+                " table in the catalog", 
+                " table in OpenMetadata catalog",
+                " table in the OpenMetadata catalog",
                 " entity",
                 " table",
-                " in the catalog",
-                " in openmetadata"
+                " openmetadata"
             ]
             for suffix in suffixes_to_check:
                 if entity_name.lower().endswith(suffix):
                     entity_name = entity_name[:-len(suffix)].strip()
-                    break  # Only remove one suffix per iteration
+            
+            # Also clean up "and identify" or similar residual phrases from the beginning
+            for residual_prefix in ["and identify ", "and locate ", "identify "]:
+                if entity_name.lower().startswith(residual_prefix):
+                    entity_name = entity_name[len(residual_prefix):].strip()
             
             # Construct a reasonable FQN based on the entity name
             # For known tables, construct a likely FQN
