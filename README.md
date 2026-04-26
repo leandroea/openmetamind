@@ -128,23 +128,6 @@ Initializes the task queue from the Planner's execution plan and sets up executi
 #### 4. Supervisor ([`src/graph/supervisor.py`](src/graph/supervisor.py:1))
 The central orchestrator that iterates through tasks sequentially. After each agent completes, synthesizes results and decides whether to continue the loop or move to the Integrity Critic.
 
-**Supervisor Loop Flow:**
-```
-Supervisor called with pending_tasks = [TaskA, TaskB, TaskC]
-
-1. Execute TaskA → Agent returns FindingA
-2. Update state: findings = [FindingA], pending_tasks = [TaskB, TaskC]
-3. Return "next": "supervisor" → Loop back
-
-4. Execute TaskB → Agent returns FindingB
-5. Update state: findings = [FindingA, FindingB], pending_tasks = [TaskC]
-6. Return "next": "supervisor" → Loop back
-
-7. Execute TaskC → Agent returns FindingC
-8. Update state: findings = [FindingA, FindingB, FindingC], pending_tasks = []
-9. Return "next": "integrity_critic" → Move to critic
-```
-
 #### 5. Integrity Critic ([`src/graph/integrity_critic.py`](src/graph/integrity_critic.py:1))
 Not just a validator — a true critic that reads the blackboard, detects contradictions, assigns final confidence, and decides routing:
 - **AUTO_APPROVE**: High confidence, proceed directly to Action Executor
