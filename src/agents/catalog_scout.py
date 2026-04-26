@@ -344,7 +344,7 @@ class CatalogScout(SwarmAgent):
                 agent_id=self.agent_id,
                 subtask_id="specific_entity_lookup",
                 task_description=task,
-                finding_type="entity_lookup",
+                finding_type="description",  # Use valid enum value
                 summary=f"Catalog Scout identified entity: {task}",
                 details={"entity_name": task, "action": "pass_to_documentation"},
                 confidence=0.8,
