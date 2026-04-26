@@ -83,15 +83,12 @@ class CatalogScout(SwarmAgent):
                         continue
                     name_lower = name.lower()
 
-                    # Positive known good databases
-                    if any(known in name_lower for known in ["ecommerce_db", "posts_db", "shopify", "default"]):
-                        if name not in seen:
-                            seen.add(name)
-                            db_names.append(name)
+                    # Skip any name with / or . (likely table/view paths, not databases)
+                    if "/" in name or "." in name or "-" in name:
                         continue
 
-                    # Snowflake test databases
-                    if name_lower.startswith("openmetadata-db-"):
+                    # Positive known good databases
+                    if any(known in name_lower for known in ["ecommerce_db", "posts_db", "shopify", "default"]):
                         if name not in seen:
                             seen.add(name)
                             db_names.append(name)
