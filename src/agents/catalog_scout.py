@@ -160,10 +160,11 @@ class CatalogScout(SwarmAgent):
                 name_lower = name.lower()
 
                 # Skip any name with / or . (likely table/view paths, not databases)
+                # BUT allow openmetadata-db-* which have hyphens but are real databases
                 if ("/" in name or "." in name) and not name_lower.startswith("openmetadata-db-"):
                     continue
 
-                # Positive known good databases
+                # Positive known good databases (real data sources)
                 if any(known in name_lower for known in ["ecommerce_db", "posts_db", "shopify", "default"]):
                     if name not in seen:
                         seen.add(name)
@@ -177,17 +178,43 @@ class CatalogScout(SwarmAgent):
                         db_names.append(name)
                     continue
 
-                # Strong exclusions - skip everything that looks like a table or test artifact
+                # Strong exclusions - skip everything that looks like a table, view, test artifact, or operation
                 if any(exclude in name_lower for exclude in [
+                    # Schema/system prefixes
                     "openmetadata-schema-", "information_schema", "pg_catalog",
+                    # Operation names (CRUD operations)
                     "calculate_", "delete_", "get_", "update_", "insert_", "transform_",
-                    "fact_", "dim_", "agent_", "metrics_", "summary", "_clean", "_address",
-                    "categories", "comments", "users", "posts", "products", "orders"
+                    # Data model prefixes (fact, dim tables)
+                    "fact_", "dim_", "dim(", "_clean", "_address", "dim_",
+                    # Agent/metrics/summary patterns
+                    "agent_", "metrics_", "summary", "_summary",
+                    # Common table/entity names (plural forms)
+                    "categories", "comments", "users", "posts", "products", "orders",
+                    "profiles", "tags", "sales", "customer_", "raw_", "order_",
+                    # Test/generated patterns
+                    "generate_random", "performance_", "bench",
+                    # Analytics/business domain tables
+                    "marketing", "mortgage", "global", "ice_", "market", "global_",
+                    # OpenMetadata internal tables
+                    "openmetadata-table-", "openmetadata-tablebench",
+                    # Russian/common non-DB names
+                    "магазин",
+                    # Specific false positives from this catalog
+                    "shopify",  # Not a real DB, likely service reference
+                    "ssot_utilization_detail",  # Looks like a data quality/ETL artifact
+                    "posts_db"  # Appears to be table-like, not in sample_data list
                 ]):
                     continue
 
-                # Skip long or complex names (very likely tables)
-                if len(name) > 35 or name.count('_') >= 3:
+                # Skip names with patterns that indicate non-database entities
+                # - Names with multiple underscores suggesting complex identifiers
+                # - Names longer than 40 chars suggesting full FQNs or paths
+                # - Names starting with raw_ or similar prefixes
+                if len(name) > 40 or name.count('_') >= 3:
+                    continue
+
+                # Additional check: skip anything that looks like a Snowflake path with multiple dots
+                if name.count('.') >= 2:
                     continue
 
                 if name and name not in seen:
@@ -556,6 +583,7 @@ class CatalogScout(SwarmAgent):
         # 1. "List all tables" request -> dedicated flat list (NOT hierarchy)
         if any(phrase in task_lower for phrase in [
             "list all tables",
+            "list all the tables",
             "list tables in the catalog",
             "all tables in the catalog",
             "show every table"
