@@ -65,40 +65,38 @@ class CatalogScout(SwarmAgent):
         logger.info("[CatalogScout] Starting hierarchy discovery with correct entity types")
         
         try:
-            # 1. Databases
-            db_resp = await mcp_client.call_tool("search_metadata", {
-                "query": "",
-                "entityType": "database",
-                "size": 100,
-                "from": 0
-            })
-            databases = db_resp.get("hits", []) if isinstance(db_resp, dict) else []
-            db_names = [d.get("name") or d.get("fullyQualifiedName", "Unknown") for d in databases]
-            db_count = len(databases)
-            logger.info(f"[CatalogScout] Found {db_count} databases: {db_names}")
+            async with mcp_client as client:
+                # 1. Databases
+                db_result = await client.search_metadata_all(
+                    query="",
+                    entity_type="database",
+                    max_results=100
+                )
+                databases = db_result.get("hits", db_result.get("data", db_result.get("results", [])))
+                db_names = [d.get("name") or d.get("fullyQualifiedName", "Unknown") for d in databases]
+                db_count = len(databases)
+                logger.info(f"[CatalogScout] Found {db_count} databases: {db_names}")
 
-            # 2. Schemas (broad search - OpenMetadata usually has fewer)
-            schema_resp = await mcp_client.call_tool("search_metadata", {
-                "query": "",
-                "entityType": "databaseSchema",
-                "size": 100,
-                "from": 0
-            })
-            schemas = schema_resp.get("hits", []) if isinstance(schema_resp, dict) else []
-            schema_count = len(schemas)
-            logger.info(f"[CatalogScout] Found {schema_count} schemas")
+                # 2. Schemas (broad search - OpenMetadata usually has fewer)
+                schema_result = await client.search_metadata_all(
+                    query="",
+                    entity_type="databaseSchema",
+                    max_results=200
+                )
+                schemas = schema_result.get("hits", schema_result.get("data", schema_result.get("results", [])))
+                schema_count = len(schemas)
+                logger.info(f"[CatalogScout] Found {schema_count} schemas")
 
-            # 3. Tables (sample for count + examples)
-            table_resp = await mcp_client.call_tool("search_metadata", {
-                "query": "",
-                "entityType": "table",
-                "size": 50,
-                "from": 0
-            })
-            tables = table_resp.get("hits", []) if isinstance(table_resp, dict) else []
-            table_count_approx = len(tables) * 10 if len(tables) > 0 else 0  # rough scaling
-            sample_tables = [t.get("name") for t in tables[:8]]
-            logger.info(f"[CatalogScout] Found {len(tables)} tables in sample, approx {table_count_approx} total")
+                # 3. Tables (sample for count + examples)
+                table_result = await client.search_metadata_all(
+                    query="",
+                    entity_type="table",
+                    max_results=1000
+                )
+                tables = table_result.get("hits", table_result.get("data", table_result.get("results", [])))
+                table_count_approx = (len(tables) / min(len(tables), 50)) * 1000 if len(tables) > 0 else 0
+                sample_tables = [t.get("name") for t in tables[:8]]
+                logger.info(f"[CatalogScout] Found {len(tables)} tables in sample, approx {int(table_count_approx)} total")
 
             # Rich summary for user
             summary = (
@@ -106,7 +104,7 @@ class CatalogScout(SwarmAgent):
                 f"• **Databases**: {db_count} total\n"
                 f"  {', '.join(db_names[:10])}{'...' if len(db_names) > 10 else ''}\n\n"
                 f"• **Schemas**: {schema_count} total\n"
-                f"• **Tables**: ~{table_count_approx:,} in the catalog\n"
+                f"• **Tables**: ~{int(table_count_approx):,} in the catalog\n"
                 f"  Sample tables: {', '.join(sample_tables) if sample_tables else 'None sampled'}\n"
             )
 
@@ -115,7 +113,7 @@ class CatalogScout(SwarmAgent):
                 "databases": db_names,
                 "database_count": db_count,
                 "schema_count": schema_count,
-                "table_count_approx": table_count_approx,
+                "table_count_approx": int(table_count_approx),
                 "sample_tables": sample_tables,
                 "raw_databases": [d.get("fullyQualifiedName") for d in databases[:5]]
             }
@@ -124,7 +122,7 @@ class CatalogScout(SwarmAgent):
                 agent_id=self.agent_id,
                 subtask_id="discover_db_hierarchy",
                 task_description=task,
-                finding_type="hierarchy",
+                finding_type="other",
                 summary=summary,
                 details=details,
                 confidence=0.92,
@@ -140,7 +138,7 @@ class CatalogScout(SwarmAgent):
                 agent_id=self.agent_id,
                 subtask_id="discover_db_hierarchy",
                 task_description=task,
-                finding_type="hierarchy",
+                finding_type="other",
                 summary=f"Error discovering hierarchy: {str(e)}",
                 details={"error": str(e)},
                 confidence=0.5,
