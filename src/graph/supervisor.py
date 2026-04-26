@@ -240,6 +240,23 @@ class Supervisor:
                             inputs[output_key] = sample_tables
                             logger.info(f"Supervisor: Extracted table_list ({len(sample_tables)} items) from previous finding's details.sample_tables for key '{key}' -> '{output_key}'")
                             break
+                        # Also check entities as fallback (sometimes findings have entities list)
+                        entities = finding.details.get("entities", [])
+                        if entities and len(entities) > 0:
+                            # Extract FQNs from entities
+                            entity_fqns = []
+                            for e in entities:
+                                if isinstance(e, dict):
+                                    fqn = e.get("fullyQualifiedName") or e.get("name")
+                                    if fqn:
+                                        entity_fqns.append(fqn)
+                                elif isinstance(e, str):
+                                    entity_fqns.append(e)
+                            if entity_fqns:
+                                output_key = "table_list" if key == "all_tables" else key
+                                inputs[output_key] = entity_fqns
+                                logger.info(f"Supervisor: Extracted table_list ({len(entity_fqns)} items) from previous finding's details.entities for key '{key}' -> '{output_key}'")
+                                break
         
         return inputs
 
