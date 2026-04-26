@@ -193,14 +193,23 @@ class Supervisor:
             if key in blackboard:
                 inputs[key] = blackboard[key]
             
-            # Special handling for table_fqn - extract from previous finding's target_entity
+            # Special handling for table_fqn - extract from previous finding's target_entity or details
             if key == "table_fqn" and key not in inputs and findings:
-                # Get the most recent finding with a target_entity
+                # Get the most recent finding with a target_entity or details.entities
                 for finding in reversed(findings):
                     if hasattr(finding, 'target_entity') and finding.target_entity:
                         inputs[key] = finding.target_entity
-                        logger.info(f"Supervisor: Extracted table_fqn='{finding.target_entity}' from previous finding")
+                        logger.info(f"Supervisor: Extracted table_fqn='{finding.target_entity}' from previous finding's target_entity")
                         break
+                    # Also check details.entities for FQN
+                    if hasattr(finding, 'details') and isinstance(finding.details, dict):
+                        entities = finding.details.get("entities", [])
+                        if entities and len(entities) > 0:
+                            first_entity = entities[0]
+                            if isinstance(first_entity, dict) and first_entity.get("fullyQualifiedName"):
+                                inputs[key] = first_entity["fullyQualifiedName"]
+                                logger.info(f"Supervisor: Extracted table_fqn='{first_entity['fullyQualifiedName']}' from previous finding's details.entities")
+                                break
         
         return inputs
 
