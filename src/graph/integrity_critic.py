@@ -274,7 +274,12 @@ class IntegrityCritic:
             validity_scores = [fa.validity_score for fa in finding_assessments]
             has_conflicts = len(conflicts) > 0
             
-            if all(score > 0.9 for score in validity_scores) and not has_conflicts:
+            # Special case: discovery-only findings (no proposed_actions) should auto-approve
+            all_discovery = all(len(f.proposed_actions) == 0 for f in findings)
+            
+            if all_discovery and all(score >= 0.8 for score in validity_scores) and not has_conflicts:
+                decision = CriticDecision.AUTO_APPROVE
+            elif all(score >= 0.9 for score in validity_scores) and not has_conflicts:
                 decision = CriticDecision.AUTO_APPROVE
             elif any(score < 0.7 for score in validity_scores) or has_conflicts:
                 decision = CriticDecision.ESCALATE_TO_HUMAN
