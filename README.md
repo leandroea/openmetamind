@@ -56,7 +56,6 @@ The following tools are available via the MCP server:
 | Tool | Description |
 |------|-------------|
 | `search_metadata` | Keyword-based search for data assets (tables, dashboards, etc.) |
-| `search_metadata_all` | Paginated search returning all results with pagination handling |
 | `semantic_search` | Vector embedding-based semantic search for meaning-based discovery |
 
 #### Entity Operations
