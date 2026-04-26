@@ -111,7 +111,13 @@ class SwarmRunner:
                         details = f.get("details", {})
                         # Check if this is a discovery finding with entities
                         if details and isinstance(details, dict):
+                            # Try multiple keys: entities, all_table_fqns, sample_tables
                             entities = details.get("entities", [])
+                            if not entities:
+                                # Fall back to all_table_fqns (strings from catalog_scout)
+                                table_fqns = details.get("all_table_fqns", [])
+                                if table_fqns and isinstance(table_fqns, list):
+                                    entities = [{"fullyQualifiedName": name, "name": name.split(".")[-1]} for name in table_fqns[:50]]
                             if entities and isinstance(entities, list):
                                 for entity in entities[:50]:  # Limit to first 50 names
                                     name = entity.get("name") or entity.get("fullyQualifiedName") or "Unknown"
@@ -123,7 +129,13 @@ class SwarmRunner:
                         details = getattr(f, 'details', {})
                         # Check if this is a discovery finding with entities
                         if details and isinstance(details, dict):
+                            # Try multiple keys: entities, all_table_fqns, sample_tables
                             entities = details.get("entities", [])
+                            if not entities:
+                                # Fall back to all_table_fqns (strings from catalog_scout)
+                                table_fqns = details.get("all_table_fqns", [])
+                                if table_fqns and isinstance(table_fqns, list):
+                                    entities = [{"fullyQualifiedName": name, "name": name.split(".")[-1]} for name in table_fqns[:50]]
                             if entities and isinstance(entities, list):
                                 for entity in entities[:50]:  # Limit to first 50 names
                                     name = entity.get("name") or entity.get("fullyQualifiedName") or "Unknown"
