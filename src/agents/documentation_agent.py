@@ -324,31 +324,75 @@ Be concise but informative. Do not suggest actions - just explain what you obser
         Args:
             mcp_client: MCP client for OpenMetadata
             search_query: Query to scope search - can be a table name, database, or "table"
-            
+                      If "table" is passed, will do a full catalog scan for undocumented.
+                      
         Returns:
             List of undocumented entities with their context
         """
         undocumented = []
         
         try:
-            async with mcp_client as client:
-                # Search for tables
-                query = search_query if search_query else "table"
-                search_result = await client.search_metadata_all(
-                    query=query,
-                    entity_type="table",
-                    max_results=100
-                )
+            # Special case: if query is "table" or empty, do a full scan for undocumented
+            # This handles "find undocumented tables" type requests
+            if search_query is None or search_query.lower() in ["table", "tables", ""]:
+                logger.info(f"[_discover_undocumented_entities] Full scan mode for undocumented tables")
+                # Use pagination to get ALL tables
+                all_entities = []
+                current_offset = 0
+                page_size = 100
+                total_count = 0
                 
-                entities = search_result.get("results", [])
+                async with mcp_client as client:
+                    while len(all_entities) < 10000:  # max_results = 10000
+                        arguments = {
+                            "query": "",
+                            "size": page_size,
+                            "from": current_offset,
+                            "entityType": "table"
+                        }
+                        
+                        try:
+                            result = await client._call_mcp_tool("search_metadata", arguments)
+                            entities = result.get("results", [])
+                            if not entities:
+                                break
+                            
+                            all_entities.extend(entities)
+                            fetched_count = len(entities)
+                            has_more = result.get("hasMore", False)
+                            total_found = result.get("totalFound", 0)
+                            total_count = total_found
+                            
+                            logger.info(f"[_discover_undocumented_entities] Pagination: fetched {len(all_entities)}/{total_found}")
+                            
+                            if total_found > 0 and len(all_entities) >= total_found:
+                                break
+                            
+                            current_offset += fetched_count
+                        except Exception as e:
+                            logger.warning(f"[_discover_undocumented_entities] Error at offset {current_offset}: {e}")
+                            break
                 
-                logger.info(f"Search returned {len(entities)} entities")
-                for entity in entities[:5]:
+                logger.info(f"[_discover_undocumented_entities] Full scan fetched {len(all_entities)} entities")
+            else:
+                # Use search for specific queries
+                logger.info(f"[_discover_undocumented_entities] Search mode for query: '{search_query}'")
+                async with mcp_client as client:
+                    search_result = await client.search_metadata_all(
+                        query=search_query,
+                        entity_type="table",
+                        max_results=100
+                    )
+                    all_entities = search_result.get("results", [])
+                    logger.info(f"[_discover_undocumented_entities] Search returned {len(all_entities)} entities")
+                
+                logger.info(f"[_discover_undocumented_entities] Processing {len(all_entities)} entities for undocumented check")
+                for entity in all_entities[:5]:
                     name = entity.get("fullyQualifiedName", entity.get("name", "UNKNOWN"))
                     desc = entity.get("description", "FIELD_MISSING")
                     logger.info(f"Entity: {name} | Description: '{desc}' | Missing: {self._is_missing_description(desc, name)}")
                 
-                for entity in entities:
+                for entity in all_entities:
                     name = entity.get("fullyQualifiedName", entity.get("name", ""))
                     description = entity.get("description", "FIELD_MISSING")
                     
@@ -365,7 +409,7 @@ Be concise but informative. Do not suggest actions - just explain what you obser
                         }
                         undocumented.append(context)
                 
-                logger.info(f"Found {len(undocumented)} undocumented entities")
+                logger.info(f"[_discover_undocumented_entities] Found {len(undocumented)} undocumented entities")
                 
         except Exception as e:
             logger.error(f"Error discovering undocumented entities: {e}")
