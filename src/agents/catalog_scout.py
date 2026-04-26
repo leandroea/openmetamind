@@ -353,7 +353,9 @@ class CatalogScout(SwarmAgent):
                 "discover the database hierarchy" in task_lower or
                 "discover full database hierarchy" in task_lower or
                 "list all databases" in task_lower or
-                "list the database hierarchy" in task_lower
+                "list the database hierarchy" in task_lower or
+                # Also match if "database hierarchy" or "complete database hierarchy" is in the task
+                "database hierarchy" in task_lower
             )
             
             if is_hierarchy_task:
