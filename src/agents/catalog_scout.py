@@ -73,7 +73,7 @@ class CatalogScout(SwarmAgent):
                     max_results=100
                 )
                 databases = db_result.get("hits", db_result.get("data", db_result.get("results", [])))
-                # Smart database filtering - aim for real ~8 databases
+                # Smart database filtering - aim for real databases
                 db_names = []
                 seen = set()
 
@@ -84,11 +84,19 @@ class CatalogScout(SwarmAgent):
                     name_lower = name.lower()
 
                     # Skip any name with / or . (likely table/view paths, not databases)
-                    if "/" in name or "." in name or "-" in name:
+                    # BUT allow openmetadata-db-* which have hyphens but are real databases
+                    if ("/" in name or "." in name) and not name_lower.startswith("openmetadata-db-"):
                         continue
 
                     # Positive known good databases
                     if any(known in name_lower for known in ["ecommerce_db", "posts_db", "shopify", "default"]):
+                        if name not in seen:
+                            seen.add(name)
+                            db_names.append(name)
+                        continue
+
+                    # Snowflake test databases (openmetadata-db-0 through openmetadata-db-4)
+                    if name_lower.startswith("openmetadata-db-"):
                         if name not in seen:
                             seen.add(name)
                             db_names.append(name)
