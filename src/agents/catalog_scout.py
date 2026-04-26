@@ -100,10 +100,23 @@ class CatalogScout(SwarmAgent):
                     # More entity patterns that shouldn't be databases
                     "employee_", "address_", "customer_", "product_"
                 ]
+                # Define explicit allow patterns - ONLY these should be considered databases
+                # This is a positive list approach for known good database patterns
+                known_db_prefixes = [
+                    "ecommerce", "openmetadata-db-", "posts_db", "shopify"
+                ]
+                known_db_exact = [
+                    "default"  # default database from various services (Glue, MySQL, etc.)
+                ]
+                
                 db_names = []
                 for d in databases:
                     name = d.get("name") or d.get("fullyQualifiedName", "")
                     name_lower = name.lower()
+                    
+                    # Check if it matches a known database prefix
+                    is_known_db = any(name_lower.startswith(prefix.lower()) for prefix in known_db_prefixes)
+                    is_known_exact = name_lower in [exact.lower() for exact in known_db_exact]
                     
                     # Skip if name matches any non-db pattern (substring match, case-insensitive)
                     if any(pattern in name_lower for pattern in non_db_patterns):
@@ -119,23 +132,24 @@ class CatalogScout(SwarmAgent):
                     }
                     if name_lower in non_db_names:
                         continue
-                    # Skip names with underscores starting with common verb prefixes (likely functions/procs)
-                    if any(name_lower.startswith(p) for p in ["calculate", "delete", "get", "update", "insert", "transform", "drop", "create", "alter", "exec"]):
-                        continue
-                    # Skip names that look like schema names (e.g., openmetadata-schema-0, shopify_schema)
-                    if "-schema" in name_lower or name_lower.startswith("schema_"):
-                        continue
-                    # Skip names that look like table/entity names (have multiple underscores - snake_case tables)
-                    if name.count('_') >= 2:
-                        continue
-                    # Skip very long names (likely FQN fragments or full query names)
-                    if len(name) > 30:
-                        continue
-                    # Skip if not a simple name at all
-                    if not name or " " in name:
-                        continue
-                    if name and name not in db_names:
-                        db_names.append(name)
+                    
+                    # Only include if it's a known database or doesn't match any exclusion criteria
+                    if is_known_db or is_known_exact:
+                        if name and name not in db_names:
+                            db_names.append(name)
+                    else:
+                        # For unknown names, apply stricter filtering
+                        # Skip if it looks like a table/entity name (snake_case with multiple parts)
+                        if name.count('_') >= 2 and not is_known_db:
+                            continue
+                        # Skip very long names
+                        if len(name) > 30:
+                            continue
+                        # Skip names that don't look like database names
+                        if not name or " " in name:
+                            continue
+                        if name and name not in db_names:
+                            db_names.append(name)
                 db_count = len(db_names)
                 logger.info(f"[CatalogScout] Found {db_count} actual databases: {db_names[:10]}")
 
