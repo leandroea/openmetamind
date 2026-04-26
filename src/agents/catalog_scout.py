@@ -140,21 +140,170 @@ class CatalogScout(SwarmAgent):
         
         return all_entities, total_count
 
-    async def _build_hierarchy(self, task: str, mcp_client) -> AgentFinding:
-        """Build and summarize the real database hierarchy."""
-        logger.info("[CatalogScout] Starting hierarchy discovery with correct entity types")
+    async def _list_all_databases(self, task: str, mcp_client) -> AgentFinding:
+        """List all databases in the catalog with full pagination - no schema/table overhead."""
+        logger.info("[CatalogScout] Starting dedicated database listing with max pagination")
         
         try:
-            # Check if this is a "list all tables" request (needs full pagination)
-            task_lower = task.lower()
-            is_list_all_tables = any(kw in task_lower for kw in [
-                "list all tables", "show every table", "all tables in the catalog",
-                "list tables", "show me all tables", "get all tables",
-                "all tables"
-            ])
+            # Fetch databases with maximum pagination
+            db_result = await self._fetch_all_entities_with_pagination(mcp_client, "database", max_results=500)
+            databases = db_result[0] if isinstance(db_result, tuple) else db_result.get("hits", db_result.get("results", []))
             
-            logger.info(f"[CatalogScout] is_list_all_tables={is_list_all_tables}")
+            # Smart database filtering - aim for real databases
+            db_names = []
+            seen = set()
+
+            for d in databases:
+                name = d.get("name") or d.get("fullyQualifiedName", "")
+                if not name:
+                    continue
+                name_lower = name.lower()
+
+                # Skip any name with / or . (likely table/view paths, not databases)
+                if ("/" in name or "." in name) and not name_lower.startswith("openmetadata-db-"):
+                    continue
+
+                # Positive known good databases
+                if any(known in name_lower for known in ["ecommerce_db", "posts_db", "shopify", "default"]):
+                    if name not in seen:
+                        seen.add(name)
+                        db_names.append(name)
+                    continue
+
+                # Snowflake test databases (openmetadata-db-0 through openmetadata-db-4)
+                if name_lower.startswith("openmetadata-db-"):
+                    if name not in seen:
+                        seen.add(name)
+                        db_names.append(name)
+                    continue
+
+                # Strong exclusions - skip everything that looks like a table or test artifact
+                if any(exclude in name_lower for exclude in [
+                    "openmetadata-schema-", "information_schema", "pg_catalog",
+                    "calculate_", "delete_", "get_", "update_", "insert_", "transform_",
+                    "fact_", "dim_", "agent_", "metrics_", "summary", "_clean", "_address",
+                    "categories", "comments", "users", "posts", "products", "orders"
+                ]):
+                    continue
+
+                # Skip long or complex names (very likely tables)
+                if len(name) > 35 or name.count('_') >= 3:
+                    continue
+
+                if name and name not in seen:
+                    seen.add(name)
+                    db_names.append(name)
+
+            db_count = len(db_names)
+            logger.info(f"[CatalogScout] Listed {db_count} databases with max pagination")
             
+            summary = (
+                f"✅ **All Databases in Catalog**\n\n"
+                f"Found **{db_count} databases**:\n\n"
+                + "\n".join([f"• {db}" for db in db_names])
+            )
+            details = {
+                "database_count": db_count,
+                "databases": db_names
+            }
+            
+            return AgentFinding(
+                agent_id=self.agent_id,
+                subtask_id="list_all_databases",
+                task_description=task,
+                finding_type="other",
+                summary=summary,
+                details=details,
+                confidence=0.95,
+                target_entity=None,
+                proposed_actions=[],
+                mcp_tool_calls=[],
+                llm_reasoning=f"Fetched {db_count} databases with full pagination. No schema/table hierarchy overhead."
+            )
+            
+        except Exception as e:
+            logger.error(f"[CatalogScout] Database listing error: {e}", exc_info=True)
+            return AgentFinding(
+                agent_id=self.agent_id,
+                subtask_id="list_all_databases",
+                task_description=task,
+                finding_type="other",
+                summary=f"Error listing databases: {str(e)}",
+                details={"error": str(e)},
+                confidence=0.5,
+                target_entity=None,
+                proposed_actions=[],
+                mcp_tool_calls=[],
+                llm_reasoning=f"Error during database listing: {str(e)}"
+            )
+
+    async def _list_all_tables(self, task: str, mcp_client) -> AgentFinding:
+        """List all tables in the catalog with full pagination - no hierarchy overhead."""
+        logger.info("[CatalogScout] Starting dedicated table listing with max pagination")
+        
+        try:
+            # Fetch tables with maximum pagination
+            table_result = await self._fetch_all_entities_with_pagination(mcp_client, "table", max_results=20000)
+            tables = table_result[0] if isinstance(table_result, tuple) else table_result.get("hits", table_result.get("results", []))
+            table_count = len(tables) if isinstance(tables, list) else 0
+            
+            # Extract table FQNs for blackboard
+            all_table_fqns = []
+            for t in tables:
+                fqn = t.get("fullyQualifiedName", t.get("name", ""))
+                if fqn:
+                    all_table_fqns.append(fqn)
+            
+            sample_tables = [t.get("name", "unknown") for t in tables[:50]]
+            logger.info(f"[CatalogScout] Listed {table_count} tables with max pagination")
+            
+            summary = (
+                f"✅ **Complete Table List**\n\n"
+                f"Found **{table_count:,} tables** in the OpenMetadata catalog\n\n"
+                f"First 50 tables: {', '.join(sample_tables[:50])}\n\n"
+                f"(Use 'get all table FQNs' for complete list)"
+            )
+            details = {
+                "table_count": table_count,
+                "all_table_fqns": all_table_fqns,
+                "sample_tables": sample_tables
+            }
+            
+            return AgentFinding(
+                agent_id=self.agent_id,
+                subtask_id="list_all_tables",
+                task_description=task,
+                finding_type="other",
+                summary=summary,
+                details=details,
+                confidence=0.95,
+                target_entity=None,
+                proposed_actions=[],
+                mcp_tool_calls=[],
+                llm_reasoning=f"Fetched all {table_count:,} tables with full pagination. No database/schema hierarchy overhead."
+            )
+            
+        except Exception as e:
+            logger.error(f"[CatalogScout] Table listing error: {e}", exc_info=True)
+            return AgentFinding(
+                agent_id=self.agent_id,
+                subtask_id="list_all_tables",
+                task_description=task,
+                finding_type="other",
+                summary=f"Error listing tables: {str(e)}",
+                details={"error": str(e)},
+                confidence=0.5,
+                target_entity=None,
+                proposed_actions=[],
+                mcp_tool_calls=[],
+                llm_reasoning=f"Error during table listing: {str(e)}"
+            )
+
+    async def _build_hierarchy(self, task: str, mcp_client) -> AgentFinding:
+        """Build and summarize the real database hierarchy."""
+        logger.info("[CatalogScout] Starting hierarchy discovery")
+        
+        try:
             # 1. Databases
             db_result = await self._fetch_all_entities_with_pagination(mcp_client, "database", max_results=200)
             databases = db_result[0] if isinstance(db_result, tuple) else db_result.get("hits", db_result.get("results", []))
@@ -217,9 +366,8 @@ class CatalogScout(SwarmAgent):
             schema_count = len(schemas) if isinstance(schemas, list) else 0
             logger.info(f"[CatalogScout] Found {schema_count} schemas with full pagination")
 
-            # 3. Tables - use higher limit for "list all tables" requests
-            table_max = 20000 if is_list_all_tables else 2000
-            table_result = await self._fetch_all_entities_with_pagination(mcp_client, "table", max_results=table_max)
+            # 3. Tables - use higher limit
+            table_result = await self._fetch_all_entities_with_pagination(mcp_client, "table", max_results=2000)
             tables = table_result[0] if isinstance(table_result, tuple) else table_result.get("hits", table_result.get("results", []))
             table_count = len(tables) if isinstance(tables, list) else 0
             
@@ -230,8 +378,8 @@ class CatalogScout(SwarmAgent):
                 if fqn:
                     all_table_fqns.append(fqn)
             
-            sample_tables = [t.get("name", "unknown") for t in tables[:30]]  # More samples for display
-            logger.info(f"[CatalogScout] Found {table_count} tables with full pagination (max requested: {table_max})")
+            sample_tables = [t.get("name", "unknown") for t in tables[:30]]
+            logger.info(f"[CatalogScout] Found {table_count} tables with full pagination")
 
         except Exception as e:
             logger.error(f"[CatalogScout] Hierarchy discovery error: {e}", exc_info=True)
@@ -249,40 +397,24 @@ class CatalogScout(SwarmAgent):
                 llm_reasoning=f"Error during hierarchy discovery: {str(e)}"
             )
         
-        # Build summary - different format for list-all-tables vs general hierarchy
-        if is_list_all_tables:
-            # For "list all tables" request - show count and examples
-            summary = (
-                f"✅ **Complete Table List**\n\n"
-                f"Found **{table_count:,} tables** in the OpenMetadata catalog\n\n"
-                f"First 40 tables: {', '.join(sample_tables[:40])}\n\n"
-                f"(Use 'get all table FQNs' for complete list)"
-            )
-            details = {
-                "table_count": table_count,
-                "all_table_fqns": all_table_fqns,
-                "sample_tables": sample_tables[:50],  # 50 samples for display
-                "database_count": db_count,
-                "schema_count": schema_count
-            }
-        else:
-            # Standard hierarchy summary
-            summary = (
-                f"✅ **Database Hierarchy Discovered**\n\n"
-                f"• **Databases**: {db_count} total\n"
-                f"  {', '.join(db_names[:8])}{' ...and ' + str(len(db_names) - 8) + ' more' if len(db_names) > 8 else ''}\n\n"
-                f"• **Schemas**: {schema_count} total\n"
-                f"• **Tables**: {table_count:,} total in the catalog\n"
-                f"  Sample: {', '.join(sample_tables[:20]) if sample_tables else 'None'}"
-            )
-            details = {
-                "databases": db_names,
-                "database_count": db_count,
-                "schema_count": schema_count,
-                "table_count": table_count,
-                "all_table_fqns": all_table_fqns,  # Always include full list for blackboard
-                "sample_tables": sample_tables
-            }
+        # Build summary - standard hierarchy format
+        sample_tables = [t.get("name", "unknown") for t in tables[:30]]
+        summary = (
+            f"✅ **Database Hierarchy Discovered**\n\n"
+            f"• **Databases**: {db_count} total\n"
+            f"  {', '.join(db_names[:8])}{' ...and ' + str(len(db_names) - 8) + ' more' if len(db_names) > 8 else ''}\n\n"
+            f"• **Schemas**: {schema_count} total\n"
+            f"• **Tables**: {table_count:,} total in the catalog\n"
+            f"  Sample: {', '.join(sample_tables[:20]) if sample_tables else 'None'}"
+        )
+        details = {
+            "databases": db_names,
+            "database_count": db_count,
+            "schema_count": schema_count,
+            "table_count": table_count,
+            "all_table_fqns": all_table_fqns,
+            "sample_tables": sample_tables
+        }
 
         return AgentFinding(
             agent_id=self.agent_id,
@@ -421,15 +553,33 @@ class CatalogScout(SwarmAgent):
         task_lower = task.lower().strip()
 
         # === STRICT ROUTING ===
-        # 1. Hierarchy / broad discovery tasks
+        # 1. "List all tables" request -> dedicated flat list (NOT hierarchy)
+        if any(phrase in task_lower for phrase in [
+            "list all tables",
+            "list tables in the catalog",
+            "all tables in the catalog",
+            "show every table"
+        ]):
+            logger.info("[CatalogScout] Detected list-all-tables task → calling _list_all_tables")
+            return await self._list_all_tables(task, mcp_client)
+        
+        # 2. "List all databases" / "list databases" -> dedicated flat list (NOT hierarchy)
+        if any(phrase in task_lower for phrase in [
+            "list all databases",
+            "list databases",
+            "show all databases",
+            "get all databases"
+        ]):
+            logger.info("[CatalogScout] Detected list-all-databases task → calling _list_all_databases")
+            return await self._list_all_databases(task, mcp_client)
+        
+        # 3. Hierarchy / broad discovery tasks (databases + schemas + tables together)
         if any(phrase in task_lower for phrase in [
             "database hierarchy", 
-            "discover the database", 
-            "list all databases", 
-            "show databases", 
+            "discover the database",
+            "show databases",
             "catalog hierarchy",
-            "discover hierarchy",
-            "list databases"
+            "discover hierarchy"
         ]):
             logger.info("[CatalogScout] Detected hierarchy task → calling _build_hierarchy")
             return await self._build_hierarchy(task, mcp_client)
