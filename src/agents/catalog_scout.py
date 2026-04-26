@@ -217,11 +217,13 @@ class CatalogScout(SwarmAgent):
         ]
         
         # Keywords for discovering databases specifically
+        # NOTE: These must be EXPLICIT main task phrases to avoid triggering on sub-task descriptions
+        # "discover databases" alone is too broad - "discover schemas within each database" would match
         db_discovery_keywords = [
-            "discover databases", "list databases", "find databases",
-            "discover schemas", "list schemas", "find schemas",
-            "discover tables", "list tables", "find tables",
-            "discover all", "catalog scout", "explore the"
+            "discover all databases", "list databases", "find databases",
+            "discover all schemas", "list schemas", "find schemas",
+            "discover all tables", "list tables", "find tables",
+            "explore the database", "catalog scout"
         ]
         
         # Check if task mentions hierarchy
@@ -358,6 +360,15 @@ class CatalogScout(SwarmAgent):
                 # Build query from task description
                 # Clean up the query - remove stop words and use just key terms
                 query = self._build_search_query(task)
+                
+                # Use the pagination method to get all results
+                # NOTE: _build_search_query may return "_build_hierarchy" as a signal to use
+                # special hierarchy handling - detect and handle this
+                query = self._build_search_query(task)
+                
+                if query == "_build_hierarchy":
+                    # Signal to use hierarchy building instead of regular search
+                    return await self._build_hierarchy(task, mcp_client)
                 
                 # Use the pagination method to get all results
                 search_result = await client.search_metadata_all(
