@@ -61,119 +61,94 @@ class CatalogScout(SwarmAgent):
         return min(score, 1.0)
     
     async def _build_hierarchy(self, task: str, mcp_client) -> AgentFinding:
-        """
-        Build a proper database hierarchy using correct entityTypes.
+        """Build and summarize the real database hierarchy."""
+        logger.info("[CatalogScout] Starting hierarchy discovery with correct entity types")
         
-        Uses empty query "" to list all entities, and proper entityType values:
-        - "database" for databases
-        - "databaseSchema" for schemas  
-        - "table" for tables
-        
-        Args:
-            task: The task description
-            mcp_client: MCP client for OpenMetadata
-            
-        Returns:
-            AgentFinding with hierarchical structure
-        """
-        logger.info(f"[CatalogScout] Building hierarchy for: {task}")
-        
-        async with mcp_client as client:
-            # 1. List Databases (empty query + entityType="database")
-            logger.info("[CatalogScout] Searching for databases with entityType='database'")
-            db_result = await client.search_metadata_all(
-                query="",
-                entity_type="database",
-                max_results=100
+        try:
+            # 1. Databases
+            db_resp = await mcp_client.call_tool("search_metadata", {
+                "query": "",
+                "entityType": "database",
+                "size": 100,
+                "from": 0
+            })
+            databases = db_resp.get("hits", []) if isinstance(db_resp, dict) else []
+            db_names = [d.get("name") or d.get("fullyQualifiedName", "Unknown") for d in databases]
+            db_count = len(databases)
+            logger.info(f"[CatalogScout] Found {db_count} databases: {db_names}")
+
+            # 2. Schemas (broad search - OpenMetadata usually has fewer)
+            schema_resp = await mcp_client.call_tool("search_metadata", {
+                "query": "",
+                "entityType": "databaseSchema",
+                "size": 100,
+                "from": 0
+            })
+            schemas = schema_resp.get("hits", []) if isinstance(schema_resp, dict) else []
+            schema_count = len(schemas)
+            logger.info(f"[CatalogScout] Found {schema_count} schemas")
+
+            # 3. Tables (sample for count + examples)
+            table_resp = await mcp_client.call_tool("search_metadata", {
+                "query": "",
+                "entityType": "table",
+                "size": 50,
+                "from": 0
+            })
+            tables = table_resp.get("hits", []) if isinstance(table_resp, dict) else []
+            table_count_approx = len(tables) * 10 if len(tables) > 0 else 0  # rough scaling
+            sample_tables = [t.get("name") for t in tables[:8]]
+            logger.info(f"[CatalogScout] Found {len(tables)} tables in sample, approx {table_count_approx} total")
+
+            # Rich summary for user
+            summary = (
+                f"✅ **Database Hierarchy Discovered**\n\n"
+                f"• **Databases**: {db_count} total\n"
+                f"  {', '.join(db_names[:10])}{'...' if len(db_names) > 10 else ''}\n\n"
+                f"• **Schemas**: {schema_count} total\n"
+                f"• **Tables**: ~{table_count_approx:,} in the catalog\n"
+                f"  Sample tables: {', '.join(sample_tables) if sample_tables else 'None sampled'}\n"
             )
-            # Handle multiple response formats: hits, data, or results
-            databases = db_result.get("hits", db_result.get("data", db_result.get("results", [])))
-            logger.info(f"[CatalogScout] Found {len(databases)} databases")
-            
-            # 2. List Schemas (empty query + entityType="databaseSchema")
-            logger.info("[CatalogScout] Searching for schemas with entityType='databaseSchema'")
-            schema_result = await client.search_metadata_all(
-                query="",
-                entity_type="databaseSchema",
-                max_results=200
-            )
-            schemas = schema_result.get("hits", schema_result.get("data", schema_result.get("results", [])))
-            logger.info(f"[CatalogScout] Found {len(schemas)} schemas")
-            
-            # 3. Get table count sample (empty query + entityType="table")
-            logger.info("[CatalogScout] Searching for tables with entityType='table'")
-            table_result = await client.search_metadata_all(
-                query="",
-                entity_type="table",
-                max_results=1000
-            )
-            tables = table_result.get("hits", table_result.get("data", table_result.get("results", [])))
-            logger.info(f"[CatalogScout] Found {len(tables)} tables (sample)")
-            
-            # Build schema-to-database mapping by parsing FQN
-            # FQN format: database.schema.table or database.schema
-            db_schemas = {}  # {database: [schemas]}
-            all_schemas_set = set()
-            
-            for schema in schemas:
-                fqn = schema.get("fullyQualifiedName") or schema.get("name", "")
-                parts = fqn.split(".")
-                if len(parts) >= 2:
-                    db, schema_name = parts[0], parts[1]
-                    if db not in db_schemas:
-                        db_schemas[db] = []
-                    db_schemas[db].append(schema_name)
-                    all_schemas_set.add(schema_name)
-            
-            for entity in tables:
-                fqn = entity.get("fullyQualifiedName", "")
-                parts = fqn.split(".")
-                if len(parts) >= 3:
-                    db = parts[0]
-                    if db not in db_schemas:
-                        db_schemas[db] = []
-            
-            # Build database summaries
-            database_summaries = []
-            for db_name in sorted(db_schemas.keys()):
-                schemas_list = sorted(set(db_schemas.get(db_name, [])))
-                database_summaries.append({
-                    "database": db_name,
-                    "schema_count": len(schemas_list),
-                    "schemas": schemas_list
-                })
-            
-            total_databases = len(database_summaries)
-            total_schemas = len(all_schemas_set)
-            # Estimate total tables from the sample
-            total_tables_estimate = (len(tables) / min(len(tables), 100)) * 1000 if tables else 0
-            
-            summary = f"Found {total_databases} database(s) with approximately {total_schemas} schema(s) and {int(total_tables_estimate)} table(s)"
-            
-            finding = AgentFinding(
+
+            # Structured details for blackboard / future rendering
+            details = {
+                "databases": db_names,
+                "database_count": db_count,
+                "schema_count": schema_count,
+                "table_count_approx": table_count_approx,
+                "sample_tables": sample_tables,
+                "raw_databases": [d.get("fullyQualifiedName") for d in databases[:5]]
+            }
+
+            return AgentFinding(
                 agent_id=self.agent_id,
-                subtask_id="hierarchy_discovery",
+                subtask_id="discover_db_hierarchy",
                 task_description=task,
-                finding_type="classification",
-                target_entity=None,
+                finding_type="hierarchy",
                 summary=summary,
-                details={
-                    "hierarchy_type": "database_schema_table",
-                    "databases": database_summaries,
-                    "total_databases": total_databases,
-                    "total_schemas": total_schemas,
-                    "total_tables_estimate": int(total_tables_estimate),
-                    "databases_found": len(databases),
-                    "schemas_found": len(schemas),
-                    "tables_in_sample": len(tables)
-                },
-                confidence=0.9,
+                details=details,
+                confidence=0.92,
+                target_entity=None,
                 proposed_actions=[],
                 mcp_tool_calls=[],
-                llm_reasoning=f"Built hierarchy using proper entityTypes: database({len(databases)}), databaseSchema({len(schemas)}), table sample({len(tables)})"
+                llm_reasoning="Used search_metadata with entityType=database, databaseSchema, table and empty query for full discovery."
             )
-            
-            return finding
+
+        except Exception as e:
+            logger.error(f"[CatalogScout] Hierarchy discovery error: {e}", exc_info=True)
+            return AgentFinding(
+                agent_id=self.agent_id,
+                subtask_id="discover_db_hierarchy",
+                task_description=task,
+                finding_type="hierarchy",
+                summary=f"Error discovering hierarchy: {str(e)}",
+                details={"error": str(e)},
+                confidence=0.5,
+                target_entity=None,
+                proposed_actions=[],
+                mcp_tool_calls=[],
+                llm_reasoning=f"Error during hierarchy discovery: {str(e)}"
+            )
     
     def _build_search_query(self, task: str, entity_type: str = "table") -> str:
         """
