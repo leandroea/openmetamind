@@ -356,21 +356,20 @@ class CatalogScout(SwarmAgent):
                 if not fqn:
                     continue
                     
-                description = t.get("description", "")
+                description = t.get("description")
                 
-                # Normalize description for checking
-                if description is None or description.strip() == "":
+                # Normalize description for checking - handle None explicitly
+                if description is None or str(description).strip() == "" or str(description).lower() in ["none", "null", "undefined"]:
                     processed_desc = "FIELD_MISSING"
+                    is_missing = True
                 else:
-                    processed_desc = description.strip()
-                
-                # Check if description is missing
-                desc_lower = processed_desc.lower()
-                is_missing = (
-                    desc_lower in PLACEHOLDER_DESCRIPTIONS or
-                    desc_lower == fqn.lower() or
-                    desc_lower == t.get("name", "").lower()
-                )
+                    processed_desc = str(description).strip()
+                    desc_lower = processed_desc.lower()
+                    is_missing = (
+                        desc_lower in PLACEHOLDER_DESCRIPTIONS or
+                        desc_lower == fqn.lower() or
+                        desc_lower == t.get("name", "").lower()
+                    )
                 
                 if is_missing:
                     undocumented_tables.append(fqn)
@@ -382,6 +381,12 @@ class CatalogScout(SwarmAgent):
             documented_count = len(documented_tables)
             
             logger.info(f"[CatalogScout] Found {undocumented_count} undocumented tables out of {total} total")
+            
+            # Debug: log first few table descriptions to understand the issue
+            for i, t in enumerate(tables[:5]):
+                fqn = t.get("fullyQualifiedName", t.get("name", ""))
+                desc = t.get("description")
+                logger.info(f"[CatalogScout] DEBUG table {i}: fqn={fqn}, desc={repr(desc)}, type={type(desc)}")
             
             # Format summary showing undocumented tables
             if undocumented_tables:
