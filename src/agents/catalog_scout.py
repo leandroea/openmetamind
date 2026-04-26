@@ -363,10 +363,22 @@ class CatalogScout(SwarmAgent):
                     entity_name = task[len(prefix):].strip()
                     break
             
-            # Clean up entity name (remove trailing words like "entity", "table", "in the catalog")
-            for suffix in [" entity", " table", " in the catalog", " in openmetadata"]:
+            # Clean up entity name (remove trailing phrases like "entity in the OpenMetadata catalog", "table in the catalog", etc.)
+            # Handle multi-word suffixes
+            suffixes_to_check = [
+                " entity in the OpenMetadata catalog",
+                " table in the OpenMetadata catalog", 
+                " entity in the catalog",
+                " table in the catalog",
+                " entity",
+                " table",
+                " in the catalog",
+                " in openmetadata"
+            ]
+            for suffix in suffixes_to_check:
                 if entity_name.lower().endswith(suffix):
                     entity_name = entity_name[:-len(suffix)].strip()
+                    break  # Only remove one suffix per iteration
             
             # Construct a reasonable FQN based on the entity name
             # For known tables, construct a likely FQN
@@ -380,7 +392,7 @@ class CatalogScout(SwarmAgent):
                 subtask_id="specific_entity_lookup",
                 task_description=task,
                 finding_type="description",
-                summary=f"Catalog Scout identified entity: {entity_name}",
+                summary=f"Located: {entity_name}",
                 details={
                     "entity_name": entity_name,
                     "table_name": entity_name,

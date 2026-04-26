@@ -387,60 +387,57 @@ Be concise but informative. Do not suggest actions - just explain what you obser
         
         try:
             async with mcp_client as client:
-                # Try get_entity_details first for full FQN
-                if "." in table_name and len(table_name.split(".")) >= 3:
-                    try:
-                        logger.info(f"[_search_specific_table] Trying get_entity_details for: {table_name}")
-                        details = await client.get_entity_details("table", table_name)
-                        if details:
-                            entity_data = details.get("entity", details)
-                            fqn = entity_data.get("fullyQualifiedName", table_name)
-                            desc = entity_data.get("description", "FIELD_MISSING")
-                            if self._is_missing_description(desc, entity_name=fqn):
-                                context = {
-                                    "name": fqn,
-                                    "displayName": entity_data.get("displayName", fqn),
-                                    "description": desc,
-                                    "database": entity_data.get("database", {}).get("displayName") if isinstance(entity_data.get("database"), dict) else None,
-                                    "service": entity_data.get("service", {}).get("displayName") if isinstance(entity_data.get("service"), dict) else None,
-                                    "tags": [t.get("tagFQN", "").split(".")[-1] for t in entity_data.get("tags", [])],
-                                    "columns": entity_data.get("columns", [])
-                                }
-                                undocumented.append(context)
-                                logger.info(f"[_search_specific_table] get_entity_details found: {fqn}")
-                                return undocumented  # Found via direct lookup
-                    except Exception as e:
-                        logger.info(f"[_search_specific_table] get_entity_details failed: {e}")
-                
-                # Fallback to search_metadata with just the table name part
+                # Extract just the table name part (last segment after any dots)
                 table_part = table_name.split(".")[-1] if "." in table_name else table_name
-                logger.info(f"[_search_specific_table] Falling back to search for: {table_part}")
+                
+                # Try get_entity_details first - handle various FQN formats
+                # The FQN could be: service.database.schema.table or just table name
+                logger.info(f"[_search_specific_table] Looking for table: '{table_name}' (part: '{table_part}')")
+                
+                # Try search first to find the actual FQN
                 search_result = await client.search_metadata_all(
                     query=table_part,
                     entity_type="table",
-                    max_results=10
+                    max_results=20
                 )
                 
                 entities = search_result.get("results", [])
+                logger.info(f"[_search_specific_table] Search returned {len(entities)} entities for query '{table_part}'")
                 
                 for entity in entities:
                     fqn = entity.get("fullyQualifiedName", "")
+                    display_name = entity.get("displayName", fqn)
                     description = entity.get("description", "FIELD_MISSING")
                     
-                    # Only include if it matches the requested table
+                    logger.info(f"[_search_specific_table] Checking entity: fqn='{fqn}', displayName='{display_name}', desc='{description[:50] if description else 'None'}...'")
+                    
+                    # Match if the table part or full name appears in the FQN
                     if table_name.lower() in fqn.lower() or table_part.lower() in fqn.lower():
+                        logger.info(f"[_search_specific_table] MATCHED entity: {fqn}")
+                        
+                        # Even if it HAS description, include it for "describe" use case
+                        context = {
+                            "name": fqn,
+                            "displayName": display_name,
+                            "description": description,
+                            "database": entity.get("database", {}).get("displayName") if isinstance(entity.get("database"), dict) else None,
+                            "service": entity.get("service", {}).get("displayName") if isinstance(entity.get("service"), dict) else None,
+                            "tags": [t.get("tagFQN", "").split(".")[-1] for t in entity.get("tags", [])],
+                            "columns": entity.get("columns", [])
+                        }
+                        
+                        # Only add if missing description OR we're doing a describe task
+                        # (We check _is_missing_description which returns False if desc exists)
                         if self._is_missing_description(description, entity_name=fqn):
-                            context = {
-                                "name": fqn,
-                                "displayName": entity.get("displayName", fqn),
-                                "description": description,
-                                "database": entity.get("database", {}).get("displayName") if isinstance(entity.get("database"), dict) else None,
-                                "service": entity.get("service", {}).get("displayName") if isinstance(entity.get("service"), dict) else None,
-                                "tags": [t.get("tagFQN", "").split(".")[-1] for t in entity.get("tags", [])],
-                                "columns": entity.get("columns", [])
-                            }
                             undocumented.append(context)
-                            
+                            logger.info(f"[_search_specific_table] Added to undocumented (missing desc): {fqn}")
+                        else:
+                            # Table HAS description - we still want to return it for describe tasks
+                            # but mark it as NOT undocumented so the caller knows
+                            logger.info(f"[_search_specific_table] Table has description, returning anyway: {fqn}")
+                            # Return a single-element list with this table info
+                            return [context]
+                
                 logger.info(f"_search_specific_table found {len(undocumented)} matching entities for '{table_name}'")
                 
         except Exception as e:
@@ -632,6 +629,20 @@ Your description:"""
         logger.info(f"[DocumentationAgent] Received inputs: {inputs}")
         logger.info(f"[DocumentationAgent] Extracted table_fqn/entity_fqn: {table_fqn}")
         
+        # Clean the table_fqn - remove extra text like " table in the OpenMetadata catalog"
+        if table_fqn:
+            raw_fqn = table_fqn
+            # Remove common suffixes that get appended by other agents
+            if raw_fqn.endswith(' table in the OpenMetadata catalog'):
+                table_fqn = raw_fqn[:-len(' table in the OpenMetadata catalog')]
+            elif raw_fqn.endswith(' entity in the OpenMetadata catalog'):
+                table_fqn = raw_fqn[:-len(' entity in the OpenMetadata catalog')]
+            elif raw_fqn.endswith(' in the OpenMetadata catalog'):
+                table_fqn = raw_fqn[:-len(' in the OpenMetadata catalog')]
+            table_fqn = ' '.join(table_fqn.split())
+            
+            logger.info(f"[DocumentationAgent] Cleaned table_fqn from '{raw_fqn}' to '{table_fqn}'")
+        
         # If we have a specific table from inputs, use it directly
         if table_fqn:
             # Use the entity name or construct a search query
@@ -715,8 +726,46 @@ Your description:"""
                     # Re-fetch context with full details
                     full_context = await self._gather_context(entity.get("name", ""), mcp_client)
                     
-                    # Generate description
-                    description, confidence = await self._generate_description(full_context)
+                    # Check if entity already has a description (describe use case)
+                    existing_desc = full_context.get("description", "")
+                    has_existing_desc = existing_desc and existing_desc != "FIELD_MISSING" and len(existing_desc) >= 10
+                    
+                    if has_existing_desc:
+                        # Use existing description from catalog for describe tasks
+                        logger.info(f"[DocumentationAgent] Found existing description for {entity.get('name')}: '{existing_desc[:80]}...'")
+                        description = existing_desc
+                        confidence = 1.0
+                        
+                        # Return immediately with a read-only finding (no action needed)
+                        table_name = entity.get("displayName", entity.get("name", "Unknown"))
+                        service = full_context.get("service", "Unknown")
+                        db = full_context.get("database", "Unknown")
+                        
+                        return AgentFinding(
+                            agent_id=self.agent_id,
+                            subtask_id="describe_entity",
+                            task_description=task,
+                            finding_type="description",  # Use allowed value
+                            target_entity=entity.get("name", ""),
+                            summary=f"✅ Description for {table_name}: {description}",
+                            details={
+                                "fqn": entity.get("name", ""),
+                                "displayName": table_name,
+                                "description": description,
+                                "service": service,
+                                "database": db,
+                                "tags": full_context.get("tags", []),
+                                "columns": full_context.get("columns", [])[:10],  # Limit columns in details
+                            },
+                            confidence=1.0,
+                            proposed_actions=[],  # NO action - description already exists!
+                            mcp_tool_calls=[],
+                            llm_reasoning="Retrieved existing description from OpenMetadata. No update required."
+                        )
+                    else:
+                        # Generate description via LLM for undocumented entities
+                        logger.info(f"[DocumentationAgent] Generating description for {entity.get('name')}")
+                        description, confidence = await self._generate_description(full_context)
                     
                     if confidence > 0:
                         proposed_actions.append(ProposedAction(
