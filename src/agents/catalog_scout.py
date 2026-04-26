@@ -341,12 +341,13 @@ class CatalogScout(SwarmAgent):
             database = inputs["database"]
         
         try:
-            # Determine if this is a hierarchy task (only for the main "discover database hierarchy" task)
-            # Sub-tasks like "discover schemas" should NOT trigger hierarchy building - they use different logic
+            # Determine if this is a hierarchy task (only for the main hierarchy discovery task)
+            # Sub-tasks like "discover schemas" should NOT trigger hierarchy building
             task_lower = task.lower()
             is_hierarchy_task = (
                 "discover the database hierarchy" in task_lower or
-                "discover full database hierarchy" in task_lower
+                "discover full database hierarchy" in task_lower or
+                ("discover" in task_lower and "hierarch" in task_lower)
             )
             
             if is_hierarchy_task:
