@@ -205,8 +205,20 @@ class CatalogScout(SwarmAgent):
             "database hierarchy", "schema hierarchy", "nested"
         ]
         
+        # Keywords for discovering databases specifically
+        db_discovery_keywords = [
+            "discover databases", "list databases", "find databases",
+            "discover schemas", "list schemas", "find schemas",
+            "discover tables", "list tables", "find tables",
+            "discover all", "catalog scout", "explore the"
+        ]
+        
         # Check if task mentions hierarchy
         if any(kw in task_lower for kw in hierarchy_keywords):
+            return "_build_hierarchy"
+        
+        # Check if task is about discovering databases/schemas/tables (uses "discover all" or similar)
+        if any(kw in task_lower for kw in db_discovery_keywords):
             return "_build_hierarchy"
         
         # Handle common patterns - exact match first
