@@ -73,9 +73,29 @@ class CatalogScout(SwarmAgent):
                     max_results=100
                 )
                 databases = db_result.get("hits", db_result.get("data", db_result.get("results", [])))
-                db_names = [d.get("name") or d.get("fullyQualifiedName", "Unknown") for d in databases]
-                db_count = len(databases)
-                logger.info(f"[CatalogScout] Found {db_count} databases: {db_names}")
+                # Filter to get actual databases (not tables, functions, or other entities)
+                # Real database names don't contain dots and aren't common non-database names
+                non_db_names = {"default", "information_schema", "pg_catalog", "sys", "performance_schema", "mysql"}
+                db_names = []
+                for d in databases:
+                    name = d.get("name") or d.get("fullyQualifiedName", "")
+                    # Skip if name has dots (likely FQN for table/schema) or is a known non-db
+                    if "." not in name and name.lower() not in non_db_names:
+                        db_names.append(name)
+                    elif name and name not in db_names:
+                        # Also add entries that look like real DBs (simple names)
+                        if not any(x in name.lower() for x in ["table", "function", "proc", "calculate", "update_", "insert_", "delete_", "get_", "transform_"]):
+                            db_names.append(name)
+                # Remove duplicates while preserving order
+                seen = set()
+                unique_db_names = []
+                for n in db_names:
+                    if n not in seen:
+                        seen.add(n)
+                        unique_db_names.append(n)
+                db_names = unique_db_names
+                db_count = len(db_names)
+                logger.info(f"[CatalogScout] Found {db_count} actual databases: {db_names[:10]}")
 
                 # 2. Schemas (broad search - OpenMetadata usually has fewer)
                 schema_result = await client.search_metadata_all(
