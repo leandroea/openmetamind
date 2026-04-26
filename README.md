@@ -47,56 +47,25 @@ OpenMetaMind rejects all of these. It provides:
 
 OpenMetaMind connects to OpenMetadata via its **MCP (Model Context Protocol) server**, which provides JSON-RPC 2.0 over HTTP with JWT Bearer authentication. All agents interact with OpenMetadata through the [`OpenMetadataMCPClient`](src/mcp/client.py:45) class.
 
-### MCP Server Tools
+### MCP Server Tools (v1.13.x / AI SDK)
 
-The following tools are available via the MCP server:
+The following tools are available via the OpenMetadata MCP server:
 
-#### Discovery & Search
+| Tool | Description | Category |
+|------|-------------|----------|
+| `search_metadata` | Search across all metadata (tables, dashboards, etc.) | Discovery |
+| `get_entity_details` | Retrieve detailed information for a specific entity | Entity |
+| `create_glossary` | Create a new glossary | Glossary |
+| `create_glossary_term` | Create a new term within an existing glossary | Glossary |
+| `get_entity_lineage` | Retrieve upstream and downstream lineage | Lineage |
+| `semantic_search` | AI-powered semantic search beyond keyword matching | Discovery |
+| `create_lineage` | Create a lineage edge between two entities | Lineage |
+| `patch_entity` | Update an entity's metadata (description, tags, owners) | Entity |
+| `get_test_definitions` | List available data quality test definitions | Quality |
+| `create_test_case` | Create a data quality test case for an entity | Quality |
+| `root_cause_analysis` | Analyze root causes of data quality failures | Quality |
 
-| Tool | Description |
-|------|-------------|
-| `search_metadata` | Keyword-based search for data assets (tables, dashboards, etc.) |
-| `semantic_search` | Vector embedding-based semantic search for meaning-based discovery |
-
-#### Entity Operations
-
-| Tool | Description |
-|------|-------------|
-| `get_entity_details` | Get detailed information about a specific entity by FQN |
-| `patch_entity` | Patch an entity using JSONPatch operations (add/replace/remove fields) |
-| `get_entity_lineage` | Get lineage information with configurable upstream/downstream depth |
-
-#### Tagging & Classification
-
-| Tool | Description |
-|------|-------------|
-| `add_tags` | Add tags to an entity (table, column, etc.) |
-| `delete_tag` | Remove a tag from an entity |
-
-#### Ownership & Descriptions
-
-| Tool | Description |
-|------|-------------|
-| `update_description` | Update entity description (uses patch_entity internally) |
-| `add_owner` | Add an owner to an entity (user or team) |
-| `remove_owner` | Remove an owner from an entity |
-
-#### Data Quality & Testing
-
-| Tool | Description |
-|------|-------------|
-| `get_table_profile` | Get profile/statistics for a table (row count, size, etc.) |
-| `create_test_case` | Create a test case for table or column |
-| `get_test_definitions` | Get available test definitions |
-
-#### Glossary & Lineage
-
-| Tool | Description |
-|------|-------------|
-| `create_glossary` | Create a new glossary |
-| `create_glossary_term` | Create a glossary term |
-| `create_lineage` | Create lineage relationship between two entities |
-| `root_cause_analysis` | Perform RCA via data quality lineage |
+**Note:** `patch_entity` with JSONPatch operations handles description updates, tag additions/removals, and owner management. Methods like `add_tags`, `update_description`, and `add_owner` are client-side wrappers around `patch_entity`.
 
 ### Authentication
 
