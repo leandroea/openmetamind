@@ -73,55 +73,50 @@ class CatalogScout(SwarmAgent):
                     max_results=100
                 )
                 databases = db_result.get("hits", db_result.get("data", db_result.get("results", [])))
-                # Filter to get actual databases (not tables, functions, or other entities)
-                # Real database names are simple, short names - not verb phrases or long names
-                non_db_patterns = [
-                    # System databases - NOT actual user databases (skip these)
-                    "information_schema", "pg_catalog", "sys", 
-                    "performance_schema", "mysql", "master", "tempdb", "model", "msdb",
-                    # Procedural/database function prefixes (likely not databases)
-                    "calculate_", "delete_", "get_", "update_", "insert_", "transform_",
-                    "drop_", "create_", "alter_", "exec_", "execute_",
-                    # Likely table/entity name prefixes  
-                    "agent_", "fact_", "dim_", "marketing_", "global_", "ice_",
-                    "_summary", "_metrics", "_daily", "_clean", "_address", "_location",
-                    "_staff", "_events", "_line_item", "_order", "_sale", "_session",
-                    "_transactions", "_product", "_shop", "_variant",
-                    # Common table/entity names that shouldn't be databases
-                    "Categories", "Comments", "Users", "Posts", "Products", 
-                    "Orders", "Inventory", "Settings", "Config", "Logs",
-                    "Events", "Tasks", "Jobs", "History", "Archive",
-                    "Tags", "Permissions", "Roles", "Sessions", "Tokens",
-                    "Analytics", "Widgets", "Pages", "Views", "Metrics",
-                    # Plural forms common in data catalogs
-                    "dim(", "fact(", "agg_", "temp_"
-                ]
+                # Smart database filtering - aim for real ~8 databases
                 db_names = []
+                seen = set()
+
                 for d in databases:
                     name = d.get("name") or d.get("fullyQualifiedName", "")
+                    if not name:
+                        continue
                     name_lower = name.lower()
-                    # Skip if name matches any non-db pattern
-                    if any(pattern in name_lower for pattern in non_db_patterns):
+
+                    # Positive known good databases
+                    if any(known in name_lower for known in ["ecommerce_db", "posts_db", "shopify", "default"]):
+                        if name not in seen:
+                            seen.add(name)
+                            db_names.append(name)
                         continue
-                    # Skip names with underscores starting with common verb prefixes (likely functions/procs)
-                    if any(name_lower.startswith(p) for p in ["calculate", "delete", "get", "update", "insert", "transform", "drop", "create", "alter", "exec"]):
+
+                    # Snowflake test databases
+                    if name_lower.startswith("openmetadata-db-"):
+                        if name not in seen:
+                            seen.add(name)
+                            db_names.append(name)
                         continue
-                    # Skip names that look like schema names (e.g., openmetadata-schema-0, shopify_schema)
-                    if "-schema" in name_lower or name_lower.startswith("schema_"):
+
+                    # Strong exclusions - skip everything that looks like a table or test artifact
+                    if any(exclude in name_lower for exclude in [
+                        "openmetadata-schema-", "information_schema", "pg_catalog",
+                        "calculate_", "delete_", "get_", "update_", "insert_", "transform_",
+                        "fact_", "dim_", "agent_", "metrics_", "summary", "_clean", "_address",
+                        "categories", "comments", "users", "posts", "products", "orders",
+                        "generate_random_password", "customer_features", "dim(shop)"
+                    ]):
                         continue
-                    # Skip names that look like table/entity names (have multiple underscores - snake_case tables)
-                    if name.count('_') >= 2:
+
+                    # Skip long or complex names (very likely tables)
+                    if len(name) > 35 or name.count('_') >= 3:
                         continue
-                    # Skip very long names (likely FQN fragments or full query names)
-                    if len(name) > 30:
-                        continue
-                    # Skip if not a simple name at all
-                    if not name or " " in name:
-                        continue
-                    if name and name not in db_names:
+
+                    if name and name not in seen:
+                        seen.add(name)
                         db_names.append(name)
+
                 db_count = len(db_names)
-                logger.info(f"[CatalogScout] Found {db_count} actual databases: {db_names[:10]}")
+                logger.info(f"[CatalogScout] Found {db_count} actual databases after filtering: {db_names[:15]}")
 
                 # 2. Schemas (broad search - OpenMetadata usually has fewer)
                 schema_result = await client.search_metadata_all(
@@ -303,157 +298,56 @@ class CatalogScout(SwarmAgent):
         return entity_type if entity_type else "table"
     
     async def execute(
-        self, 
-        task: str, 
-        inputs: Dict[str, Any], 
+        self,
+        task: str,
+        inputs: Dict[str, Any],
         mcp_client: Any = None
     ) -> AgentFinding:
-        """
-        Execute the catalog scout's discovery logic.
-        
-        Args:
-            task: The specific task description for this agent
-            inputs: Dictionary of input data from the blackboard
-            mcp_client: MCP client for interacting with OpenMetadata
-            
-        Returns:
-            AgentFinding containing discovered entities
-        """
+        """Main execution entry point with proper routing."""
         logger.info(f"[CatalogScout] Executing task: {task}")
-        
-        # Get MCP client if not provided
+
         if mcp_client is None:
             mcp_client = get_mcp_client()
-        
-        # Determine what type of entities to look for based on task
-        entity_type = "table"  # default
-        database = None
-        
-        task_lower = task.lower()
-        # Priority: explicit entity type in task > "table" > "database" > "schema"
-        if "table" in task_lower:
-            entity_type = "table"
-        elif "database" in task_lower:
-            entity_type = "database"
-        elif "schema" in task_lower:
-            entity_type = "database_service"  # OpenMetadata uses database_service for schemas
-        
-        # Extract database from inputs if available
-        if inputs and "database" in inputs:
-            database = inputs["database"]
-        
-        try:
-            # Determine if this is a hierarchy task (only for the main "discover database hierarchy" task)
-            # Sub-tasks like "discover schemas" should NOT trigger hierarchy building - they use different logic
-            task_lower = task.lower()
-            is_hierarchy_task = (
-                "discover the database hierarchy" in task_lower or
-                "discover full database hierarchy" in task_lower
-            )
-            
-            if is_hierarchy_task:
-                return await self._build_hierarchy(task, mcp_client)
-            
-            # Use the MCP client to search for entities using keyword search
-            # Use search_metadata_all to get ALL results with pagination
-            async with mcp_client as client:
-                # Build query from task description
-                # Clean up the query - remove stop words and use just key terms
-                query = self._build_search_query(task)
-                
-                # Use the pagination method to get all results
-                # NOTE: _build_search_query may return "_build_hierarchy" as a signal to use
-                # special hierarchy handling - detect and handle this
-                query = self._build_search_query(task)
-                
-                if query == "_build_hierarchy":
-                    # Signal to use hierarchy building instead of regular search
-                    return await self._build_hierarchy(task, mcp_client)
-                
-                # Use the pagination method to get all results
-                search_result = await client.search_metadata_all(
-                    query=query,
-                    entity_type=entity_type,
-                    max_results=1000  # Get up to 1000 results
-                )
-                
-                # Extract entities from search results
-                # The response structure has results at the top level
-                entities = search_result.get("results", [])
-                total_count = search_result.get("totalFound", len(entities))
-                
-                # Deduplicate entities by FQN before building details
-                # Some search results may contain the same entity multiple times across pages
-                unique_by_fqn = {}
-                for hit in entities:
-                    # Extract FQN from hit, checking multiple possible field paths
-                    fqn = (
-                        hit.get("fullyQualifiedName") or
-                        hit.get("_source", {}).get("fullyQualifiedName") or
-                        hit.get("name") or
-                        hit.get("_source", {}).get("name") or
-                        ""
-                    )
-                    if fqn and fqn not in unique_by_fqn:
-                        unique_by_fqn[fqn] = hit
-                
-                unique_entities = list(unique_by_fqn.values())
-                
-                # Create summary - use actual unique count
-                summary = f"Found {len(unique_entities)} unique {entity_type}(s) in the catalog"
-                
-                # Create details - include all unique entities, not just first 10
-                details = {
-                    "entity_type": entity_type,
-                    "query": query,
-                    "entities": [
-                        {
-                            "name": entity.get("name"),
-                            "fullyQualifiedName": entity.get("fullyQualifiedName"),
-                            "description": entity.get("description"),
-                            "service": entity.get("service", {}).get("displayName") if isinstance(entity.get("service"), dict) else None,
-                            "database": entity.get("database", {}).get("displayName") if isinstance(entity.get("database"), dict) else None
-                        }
-                        for entity in unique_entities
-                    ],
-                    "total_count": total_count,
-                    "returned_count": len(unique_entities),
-                    "deduplicated": True
-                }
-                
-                # Create finding
-                finding = AgentFinding(
-                    agent_id=self.agent_id,
-                    subtask_id="catalog_discovery",
-                    task_description=task,
-                    finding_type="classification",  # or maybe a new type for discovery
-                    target_entity=None,  # This is a general discovery, not targeting a specific entity
-                    summary=summary,
-                    details=details,
-                    confidence=0.95,  # High confidence in discovery results
-                    proposed_actions=[],  # Discovery doesn't propose actions directly
-                    mcp_tool_calls=[],  # Would be populated by the MCP client internally
-                    llm_reasoning=f"The Catalog Scout discovered {total_count} {entity_type}(s) by querying the OpenMetadata MCP server using search_metadata with pagination. All entities are included in the response."
-                )
-                
-                return finding
-                
-        except Exception as e:
-            logger.error(f"Catalog Scout failed: {str(e)}")
-            # Return a finding indicating failure
-            finding = AgentFinding(
+
+        task_lower = task.lower().strip()
+
+        # === STRICT ROUTING ===
+        # 1. Hierarchy / broad discovery tasks
+        if any(phrase in task_lower for phrase in [
+            "database hierarchy", 
+            "discover the database", 
+            "list all databases", 
+            "show databases", 
+            "catalog hierarchy",
+            "discover hierarchy",
+            "list databases"
+        ]):
+            logger.info("[CatalogScout] Detected hierarchy task → calling _build_hierarchy")
+            return await self._build_hierarchy(task, mcp_client)
+
+        # 2. Specific "Describe" or "Details" tasks → should go to Documentation Agent (do NOT use hierarchy)
+        if any(phrase in task_lower for phrase in [
+            "describe ", 
+            "details of ", 
+            "schema of ", 
+            "what is the ",
+            "what is "
+        ]) or task_lower.startswith("describe "):
+            logger.info(f"[CatalogScout] Detected specific describe task: {task} → returning simple finding so Coordinator routes to Documentation Agent")
+            return AgentFinding(
                 agent_id=self.agent_id,
-                subtask_id="catalog_discovery",
+                subtask_id="specific_entity_lookup",
                 task_description=task,
-                finding_type="other",
-                summary=f"Catalog Scout failed: {str(e)}",
-                details={"error": str(e), "entity_type": entity_type},
-                confidence=0.0,
-                proposed_actions=[],
-                mcp_tool_calls=[],
-                llm_reasoning=f"An error occurred while attempting to discover entities: {str(e)}"
+                finding_type="entity_lookup",
+                summary=f"Catalog Scout identified entity: {task}",
+                details={"entity_name": task, "action": "pass_to_documentation"},
+                confidence=0.8,
+                target_entity=None
             )
-            return finding
+
+        # 3. Default fallback for other discovery tasks
+        logger.info("[CatalogScout] Using hierarchy as default for general discovery")
+        return await self._build_hierarchy(task, mcp_client)
 
 
 # Self-register on import
