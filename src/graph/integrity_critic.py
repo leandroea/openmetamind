@@ -13,6 +13,7 @@ import os
 import logging
 
 from ..models.state import SwarmState, AgentFinding, Conflict, CriticDecision, CriticReview, FindingAssessment, ActionType, ProposedAction
+from ..utils import strip_think
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +222,7 @@ class IntegrityCritic:
                 conflicts_resolved=0,  # Would be updated if we auto-resolve
                 conflicts_escalated=len([c for c in conflicts if c.severity == "critical"]),
                 decision=CriticDecision(critic_result.get("decision", "escalate_to_human")),
-                reasoning=critic_result.get("reasoning", "Critic analysis completed"),
+                reasoning=strip_think(critic_result.get("reasoning", "Critic analysis completed")),
                 approved_actions=[ProposedAction(**a) for a in critic_result.get("approved_actions", [])],
                 rejected_actions=[ProposedAction(**a) for a in critic_result.get("rejected_actions", [])],
                 escalated_actions=[ProposedAction(**a) for a in critic_result.get("escalated_actions", [])]
