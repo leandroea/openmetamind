@@ -74,26 +74,38 @@ class CatalogScout(SwarmAgent):
                 )
                 databases = db_result.get("hits", db_result.get("data", db_result.get("results", [])))
                 # Filter to get actual databases (not tables, functions, or other entities)
-                # Real database names don't contain dots and aren't common non-database names
-                non_db_names = {"default", "information_schema", "pg_catalog", "sys", "performance_schema", "mysql"}
+                # Real database names are simple, short names - not verb phrases or long names
+                non_db_patterns = [
+                    "default", "information_schema", "pg_catalog", "sys", 
+                    "performance_schema", "mysql", "master", "tempdb", "model", "msdb",
+                    "calculate_", "delete_", "get_", "update_", "insert_", "transform_",
+                    "drop_", "create_", "alter_", "exec_", "execute_",
+                    "agent_", "fact_", "dim_", "marketing_", "global_", "ice_",
+                    "_summary", "_metrics", "_daily", "_clean", "_address", "_location",
+                    "_staff", "_events", "_line_item", "_order", "_sale", "_session",
+                    "_transactions", "_product", "_shop", "_variant"
+                ]
                 db_names = []
                 for d in databases:
                     name = d.get("name") or d.get("fullyQualifiedName", "")
-                    # Skip if name has dots (likely FQN for table/schema) or is a known non-db
-                    if "." not in name and name.lower() not in non_db_names:
+                    name_lower = name.lower()
+                    # Skip if name matches any non-db pattern
+                    if any(pattern in name_lower for pattern in non_db_patterns):
+                        continue
+                    # Skip names with underscores starting with common verb prefixes (likely functions/procs)
+                    if any(name_lower.startswith(p) for p in ["calculate", "delete", "get", "update", "insert", "transform", "drop", "create", "alter", "exec"]):
+                        continue
+                    # Skip names that look like table/entity names (have multiple underscores - snake_case tables)
+                    if name.count('_') >= 2:
+                        continue
+                    # Skip very long names (likely FQN fragments or full query names)
+                    if len(name) > 30:
+                        continue
+                    # Skip if not a simple name at all
+                    if not name or " " in name:
+                        continue
+                    if name and name not in db_names:
                         db_names.append(name)
-                    elif name and name not in db_names:
-                        # Also add entries that look like real DBs (simple names)
-                        if not any(x in name.lower() for x in ["table", "function", "proc", "calculate", "update_", "insert_", "delete_", "get_", "transform_"]):
-                            db_names.append(name)
-                # Remove duplicates while preserving order
-                seen = set()
-                unique_db_names = []
-                for n in db_names:
-                    if n not in seen:
-                        seen.add(n)
-                        unique_db_names.append(n)
-                db_names = unique_db_names
                 db_count = len(db_names)
                 logger.info(f"[CatalogScout] Found {db_count} actual databases: {db_names[:10]}")
 
