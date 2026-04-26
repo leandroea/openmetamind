@@ -221,16 +221,17 @@ Available agents:
 {agent_capabilities}
 
 IMPORTANT: When the user request mentions a specific table or entity (e.g., "the big_data_table_with_nested_columns table" or "sample_data.ecommerce_db.shopify.big_data_table_with_nested_columns"), you MUST:
-1. Include the table's fully qualified name (FQN) in the required_inputs of the subtask that will use it
-2. Use the format: "table_fqn: <full_fqn>" in required_inputs
-3. The discovering agent (catalog_scout) should produce output that the next agent can use
+1. The discovering agent (catalog_scout) should be first to locate the table and store its FQN
+2. The second agent should use "required_inputs": ["table_fqn"] to receive the FQN from blackboard
+3. Do NOT try to embed the FQN directly in required_inputs - the supervisor extracts it from previous findings
 
 IMPORTANT: For explanation/analysis tasks (e.g., "Explain nested columns in X", "Describe structure of X"), route to documentation_agent NOT quality_guardian. The documentation_agent has an explain mode that returns text explanations without actions.
 
 Example:
 - Task: "Explain the nested column structures in big_data_table_with_nested_columns"
-- Subtask: {{"subtask_id": "discover_nested_table", "agent_id": "catalog_scout", "task_description": "Find the big_data_table_with_nested_columns table", "required_inputs": [], "produces_output": "table_fqn"}}
-- Then documentation_agent with "required_inputs": ["table_fqn"], NOT quality_guardian
+- Subtask 1: {{"subtask_id": "discover_nested_table", "agent_id": "catalog_scout", "task_description": "Find the big_data_table_with_nested_columns table", "required_inputs": [], "produces_output": "table_fqn"}}
+- Subtask 2: {{"subtask_id": "explain_nested_columns", "agent_id": "documentation_agent", "task_description": "Explain the nested column structures in big_data_table_with_nested_columns", "required_inputs": ["table_fqn"], "dependencies": ["discover_nested_table"]}}
+- Note: Do NOT add "table_fqn: <something>" to required_inputs - just use the key name
 
 Examples:
 - Task: "Find all tables missing descriptions" -> catalog_scout first, then documentation_agent
