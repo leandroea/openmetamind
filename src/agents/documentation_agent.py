@@ -156,6 +156,160 @@ class DocumentationAgent(SwarmAgent):
         
         return False
     
+    def _is_explain_task(self, task: str) -> bool:
+        """
+        Detect if task is asking for explanation/analysis rather than documentation.
+        
+        Tasks like "Explain nested columns in X" or "Analyze structure of X"
+        are read-only and should return text explanations, not proposed actions.
+        """
+        task_lower = task.lower()
+        explain_keywords = [
+            "explain",
+            "describe structure",
+            "analyze structure",
+            "what columns",
+            "what fields",
+            "show me the",
+            "understand the",
+            "breakdown of",
+            "nested",
+            "hierarchy",
+        ]
+        
+        # Also check for negative documentation indicators
+        doc_keywords = [
+            "document",
+            "add description",
+            "fill in",
+            "missing description",
+        ]
+        
+        has_explain = any(kw in task_lower for kw in explain_keywords)
+        has_doc_only = all(kw in task_lower for kw in doc_keywords)
+        
+        # It's an explain task if it has explain keywords and not purely documentation
+        return has_explain and not has_doc_only
+    
+    async def _explain_nested_columns(
+        self,
+        task: str,
+        inputs: Dict[str, Any],
+        mcp_client
+    ) -> AgentFinding:
+        """
+        Explain mode: Analyze entity structure and return text explanation.
+        
+        This is a read-only analysis task - no proposed actions are generated.
+        
+        Args:
+            task: The explanation task description
+            inputs: Input data from blackboard
+            mcp_client: MCP client for OpenMetadata
+            
+        Returns:
+            AgentFinding with text explanation in summary/details
+        """
+        logger.info(f"[DocumentationAgent] Explain mode: {task}")
+        
+        # Extract table/entity name from task
+        table_fqn = inputs.get("table_fqn") or inputs.get("entity_fqn")
+        if not table_fqn:
+            table_fqn = self._extract_table_name_from_task(task) or self._extract_database_from_task(task)
+        
+        if not table_fqn:
+            return AgentFinding(
+                agent_id=self.agent_id,
+                subtask_id="explain_structure",
+                task_description=task,
+                finding_type="explanation",
+                target_entity=None,
+                summary="No entity specified for explanation",
+                details={},
+                confidence=1.0,
+                proposed_actions=[],
+                mcp_tool_calls=[],
+                llm_reasoning="Cannot explain without a target entity."
+            )
+        
+        try:
+            # Fetch entity details
+            context = await self._gather_context(table_fqn, mcp_client)
+            
+            # Build column info for LLM
+            columns_info = ""
+            columns = context.get("columns", [])
+            if columns:
+                col_lines = []
+                for col in columns[:20]:  # Limit to first 20
+                    col_lines.append(
+                        f"  - {col.get('name', 'unknown')} ({col.get('dataType', 'unknown')}): "
+                        f"{col.get('description', 'No description')[:100]}"
+                    )
+                columns_info = "\nColumns:\n" + "\n".join(col_lines)
+            
+            tags_str = ", ".join(context.get("tags", [])) or "None"
+            
+            # Generate explanation via LLM
+            llm = self._get_llm()
+            prompt = f"""You are a data analyst explaining table structure. 
+Provide a clear explanation of this table's columns and their meaning.
+
+Table: {context.get('displayName', table_fqn)}
+Database: {context.get('database', 'Unknown')}
+Tags: {tags_str}
+{columns_info}
+
+Based on the column names and types, explain:
+1. What kind of data this table contains
+2. The structure and hierarchy of columns
+3. Any nested or complex column relationships
+
+Be concise but informative. Do not suggest actions - just explain what you observe."""
+
+            response = await llm.ainvoke(prompt)
+            explanation = response.content if hasattr(response, 'content') else str(response)
+            explanation = strip_think(explanation).strip()
+            
+            return AgentFinding(
+                agent_id=self.agent_id,
+                subtask_id="explain_structure",
+                task_description=task,
+                finding_type="explanation",
+                target_entity=table_fqn,
+                summary=explanation[:500] if len(explanation) > 500 else explanation,
+                details={
+                    "table_fqn": table_fqn,
+                    "column_count": len(columns),
+                    "columns": [
+                        {"name": c.get("name"), "type": c.get("dataType")} 
+                        for c in columns[:20]
+                    ],
+                    "tags": context.get("tags", []),
+                    "full_explanation": explanation
+                },
+                confidence=0.9,
+                proposed_actions=[],
+                mcp_tool_calls=[],
+                llm_reasoning="Explained table structure based on column metadata."
+            )
+            
+        except Exception as e:
+            logger.warning(f"Explain mode failed: {e}")
+            return AgentFinding(
+                agent_id=self.agent_id,
+                subtask_id="explain_structure",
+                task_description=task,
+                finding_type="explanation",
+                target_entity=table_fqn,
+                summary=f"Explanation failed: {str(e)}",
+                details={"error": str(e)},
+                confidence=0.0,
+                proposed_actions=[],
+                mcp_tool_calls=[],
+                llm_reasoning=f"Error during explanation: {str(e)}"
+            )
+    
     async def _discover_undocumented_entities(
         self,
         mcp_client,
@@ -397,6 +551,10 @@ Your description:"""
             AgentFinding with proposed description actions
         """
         logger.info(f"[DocumentationAgent] Executing task: {task}")
+        
+        # Check if this is an explanation/analysis task (vs documentation task)
+        if self._is_explain_task(task):
+            return await self._explain_nested_columns(task, inputs, mcp_client)
         
         if mcp_client is None:
             mcp_client = get_mcp_client()
