@@ -581,11 +581,15 @@ Your description:"""
         logger.info(f"[DocumentationAgent] Executing task: {task}")
         logger.info(f"[DocumentationAgent] execute() called with inputs: {inputs}")
         logger.info(f"[DocumentationAgent] execute() called with task: {task[:100]}")
-        
+
         # Check if this is an explanation/analysis task (vs documentation task)
         # BUT only if we have table_fqn from inputs - otherwise be more careful
         if self._is_explain_task(task) and inputs and inputs.get("table_fqn"):
             return await self._explain_nested_columns(task, inputs, mcp_client)
+        
+        # Log what we received in inputs
+        table_list_from_inputs = inputs.get("table_list", []) if inputs else []
+        logger.info(f"[DocumentationAgent] table_list from inputs has {len(table_list_from_inputs)} items")
         
         # Safety net: if no table_fqn from inputs but task mentions a specific entity, parse it
         if not inputs or (not inputs.get("table_fqn") and not inputs.get("entity_fqn")):
@@ -627,6 +631,7 @@ Your description:"""
         
         # Check if we have a list of tables from a previous agent
         table_list = inputs.get("table_list", []) if inputs else []
+        logger.info(f"[DocumentationAgent] table_list has {len(table_list)} items from inputs")
         
         # Check for specific table name in task (FQN pattern with dots)
         specific_table = None
@@ -675,10 +680,12 @@ Your description:"""
             # Step A - Discover undocumented entities
             if table_list:
                 # Use tables provided by previous agent
+                logger.info(f"[DocumentationAgent] Processing {len(table_list)} tables from input list")
                 for table_fqn in table_list:
                     context = await self._gather_context(table_fqn, mcp_client)
                     if self._is_missing_description(context.get("description", "")):
                         undocumented.append(context)
+                logger.info(f"[DocumentationAgent] Found {len(undocumented)} undocumented from table_list")
             elif specific_table:
                 # Search for specific table by name (has dots = FQN pattern)
                 logger.info(f"Searching for specific table: {specific_table}")
