@@ -217,25 +217,22 @@ class CatalogScout(SwarmAgent):
         """
         task_lower = task.lower().strip()
         
-        # Hierarchy building keywords
+        # Hierarchy building keywords - ONLY match explicit hierarchy tasks (not sub-task phrases)
         hierarchy_keywords = [
-            "hierarchy", "hierarchical", "relationships", "structure",
-            "database hierarchy", "schema hierarchy", "nested"
+            "database hierarchy", "schema hierarchy", "discover the database hierarchy",
+            "discover full database hierarchy"
         ]
         
-        # Keywords for discovering databases specifically
+        # Keywords for discovering databases specifically (not sub-task phrases)
         db_discovery_keywords = [
-            "discover databases", "list databases", "find databases",
-            "discover schemas", "list schemas", "find schemas",
-            "discover tables", "list tables", "find tables",
-            "discover all", "catalog scout", "explore the"
+            "catalog scout", "explore the catalog"
         ]
         
-        # Check if task mentions hierarchy
+        # Check if task mentions hierarchy (must be explicit phrase, not just word "hierarchy")
         if any(kw in task_lower for kw in hierarchy_keywords):
             return "_build_hierarchy"
         
-        # Check if task is about discovering databases/schemas/tables (uses "discover all" or similar)
+        # Check if task is about discovering databases/schemas/tables (uses "catalog scout" or explicit phrasing)
         if any(kw in task_lower for kw in db_discovery_keywords):
             return "_build_hierarchy"
         
@@ -352,13 +349,11 @@ class CatalogScout(SwarmAgent):
             # Sub-tasks like "discover schemas" should NOT trigger hierarchy building
             task_lower = task.lower()
             is_hierarchy_task = (
-                # Explicit phrases for hierarchy discovery
+                # Only match explicit main task phrases - not sub-tasks
                 "discover the database hierarchy" in task_lower or
                 "discover full database hierarchy" in task_lower or
                 "list all databases" in task_lower or
-                "list the database hierarchy" in task_lower or
-                # AND condition for natural language that implies hierarchy
-                ("discover" in task_lower and "hierarch" in task_lower)
+                "list the database hierarchy" in task_lower
             )
             
             if is_hierarchy_task:
