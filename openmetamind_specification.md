@@ -686,10 +686,15 @@ The Integrity Critic verified this finding against:
 | Catalog Scout | `catalog_scout` | Discovery | `list_entities`, `search_catalog`, `get_entity_details` |
 | Data Steward | `data_steward` | Classification | `pii_detection`, `tag_assignment`, `ownership_management` |
 | Quality Guardian | `quality_guardian` | Data Quality | `profile_table`, `detect_anomalies`, `validate_sla` |
-| Documentation Agent | `documentation_agent` | Metadata | `find_undocumented`, `generate_description`, `document_entities` |
+| Documentation Agent | `documentation_agent` | Metadata | `find_undocumented`, `generate_description`, `document_entities`, `explain_structure` |
 | Example Agent | `example_agent` | Demo | `example_task` |
 
 **Note:** Integrity Critic and Action Executor are graph nodes, not agents. Policy Enforcer, Impact Analyst, and other agents in this table are planned but not yet implemented.
+
+**Documentation Agent Notes:**
+- `explain_structure` is a read-only mode that returns text explanation (no ProposedActions) for tasks asking "explain", "analyze", "describe structure"
+- `document_entities` returns `ProposedAction[]` with `ADD_DESCRIPTION` type
+- Tasks are routed based on keyword detection (`explain`, `describe structure`, `nested columns` vs `document`, `add description`)
 
 ### 5.2 Example: Adding a New Agent
 
