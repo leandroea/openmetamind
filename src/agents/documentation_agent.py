@@ -385,31 +385,33 @@ Be concise but informative. Do not suggest actions - just explain what you obser
                     )
                     all_entities = search_result.get("results", [])
                     logger.info(f"[_discover_undocumented_entities] Search returned {len(all_entities)} entities")
-                
-                logger.info(f"[_discover_undocumented_entities] Processing {len(all_entities)} entities for undocumented check")
-                for entity in all_entities[:5]:
+            
+            logger.info(f"[_discover_undocumented_entities] About to process {len(all_entities)} entities for undocumented check")
+            logger.info(f"[_discover_undocumented_entities] First entity sample: {all_entities[0] if all_entities else 'EMPTY'}")
+            
+            for idx, entity in enumerate(all_entities):
+                if idx < 5:
                     name = entity.get("fullyQualifiedName", entity.get("name", "UNKNOWN"))
                     desc = entity.get("description", "FIELD_MISSING")
-                    logger.info(f"Entity: {name} | Description: '{desc}' | Missing: {self._is_missing_description(desc, name)}")
+                    is_missing = self._is_missing_description(desc, name)
+                    logger.info(f"[_discover_undocumented_entities] Entity {idx}: {name} | Desc: '{desc[:50]}...' | Missing: {is_missing}")
                 
-                for entity in all_entities:
-                    name = entity.get("fullyQualifiedName", entity.get("name", ""))
-                    description = entity.get("description", "FIELD_MISSING")
-                    
-                    if self._is_missing_description(description, entity_name=name):
-                        # Gather context for this entity
-                        context = {
-                            "name": name,
-                            "displayName": entity.get("displayName", name),
-                            "description": description,
-                            "database": entity.get("database", {}).get("displayName") if isinstance(entity.get("database"), dict) else None,
-                            "service": entity.get("service", {}).get("displayName") if isinstance(entity.get("service"), dict) else None,
-                            "tags": [t.get("tagFQN", "").split(".")[-1] for t in entity.get("tags", [])],
-                            "columns": entity.get("columns", [])
-                        }
-                        undocumented.append(context)
+                name = entity.get("fullyQualifiedName", entity.get("name", ""))
+                description = entity.get("description", "FIELD_MISSING")
                 
-                logger.info(f"[_discover_undocumented_entities] Found {len(undocumented)} undocumented entities")
+                if self._is_missing_description(description, entity_name=name):
+                    context = {
+                        "name": name,
+                        "displayName": entity.get("displayName", name),
+                        "description": description,
+                        "database": entity.get("database", {}).get("displayName") if isinstance(entity.get("database"), dict) else None,
+                        "service": entity.get("service", {}).get("displayName") if isinstance(entity.get("service"), dict) else None,
+                        "tags": [t.get("tagFQN", "").split(".")[-1] for t in entity.get("tags", [])],
+                        "columns": entity.get("columns", [])
+                    }
+                    undocumented.append(context)
+            
+            logger.info(f"[_discover_undocumented_entities] Found {len(undocumented)} undocumented entities out of {len(all_entities)} total")
                 
         except Exception as e:
             logger.error(f"Error discovering undocumented entities: {e}")
