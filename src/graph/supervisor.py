@@ -220,22 +220,25 @@ class Supervisor:
                                 logger.info(f"Supervisor: Extracted table_fqn='{first_entity['fullyQualifiedName']}' from previous finding's details.entities")
                                 break
             
-            # Special handling for table_list / all_table_fqns - extract from finding.details
-            table_list_keys = ["table_list", "all_table_fqns"]
+            # Special handling for table_list / all_table_fqns / all_tables - extract from finding.details
+            table_list_keys = ["table_list", "all_table_fqns", "all_tables"]
             if key in table_list_keys and key not in inputs and findings:
                 for finding in reversed(findings):
                     if hasattr(finding, 'details') and isinstance(finding.details, dict):
                         # Look for all_table_fqns or table_list in details
                         table_fqns = finding.details.get("all_table_fqns", [])
                         if table_fqns and len(table_fqns) > 0:
-                            inputs[key] = table_fqns
-                            logger.info(f"Supervisor: Extracted table_list ({len(table_fqns)} items) from previous finding's details.all_table_fqns")
+                            # Map all_tables to table_list if that's what the next agent expects
+                            output_key = "table_list" if key == "all_tables" else key
+                            inputs[output_key] = table_fqns
+                            logger.info(f"Supervisor: Extracted table_list ({len(table_fqns)} items) from previous finding's details.all_table_fqns for key '{key}' -> '{output_key}'")
                             break
                         # Also check sample_tables as fallback
                         sample_tables = finding.details.get("sample_tables", [])
                         if sample_tables and len(sample_tables) > 0:
-                            inputs[key] = sample_tables
-                            logger.info(f"Supervisor: Extracted table_list ({len(sample_tables)} items) from previous finding's details.sample_tables")
+                            output_key = "table_list" if key == "all_tables" else key
+                            inputs[output_key] = sample_tables
+                            logger.info(f"Supervisor: Extracted table_list ({len(sample_tables)} items) from previous finding's details.sample_tables for key '{key}' -> '{output_key}'")
                             break
         
         return inputs
