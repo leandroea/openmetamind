@@ -60,6 +60,102 @@ class CatalogScout(SwarmAgent):
         # Cap the score at 1.0
         return min(score, 1.0)
     
+    async def _build_hierarchy(self, task: str, mcp_client) -> AgentFinding:
+        """
+        Build a database hierarchy from search results.
+        
+        This method searches for all table entities, then parses their FQN
+        to build a hierarchical structure: database -> schema -> table.
+        
+        Args:
+            task: The task description
+            mcp_client: MCP client for OpenMetadata
+            
+        Returns:
+            AgentFinding with hierarchical structure
+        """
+        logger.info(f"[CatalogScout] Building hierarchy for: {task}")
+        
+        async with mcp_client as client:
+            # Search for all tables to build hierarchy
+            search_result = await client.search_metadata_all(
+                query="table",
+                entity_type="table",
+                max_results=5000  # Get many results for hierarchy
+            )
+            
+            entities = search_result.get("results", [])
+            logger.info(f"[CatalogScout] Hierarchy search returned {len(entities)} entities")
+            
+            # Build hierarchy by parsing FQN (format: db.schema.table)
+            hierarchy = {}  # {database: {schema: [tables]}}
+            
+            for entity in entities:
+                fqn = entity.get("fullyQualifiedName") or entity.get("_source", {}).get("fullyQualifiedName", "")
+                if not fqn:
+                    continue
+                
+                parts = fqn.split(".")
+                if len(parts) >= 3:
+                    db, schema, table = parts[0], parts[1], parts[2]
+                    if db not in hierarchy:
+                        hierarchy[db] = {}
+                    if schema not in hierarchy[db]:
+                        hierarchy[db][schema] = []
+                    hierarchy[db][schema].append({
+                        "name": table,
+                        "fullyQualifiedName": fqn,
+                        "description": entity.get("description", "")
+                    })
+                elif len(parts) == 2:
+                    # database.schema format
+                    db, schema = parts[0], parts[1]
+                    if db not in hierarchy:
+                        hierarchy[db] = {}
+                    hierarchy[db][schema] = hierarchy[db].get(schema, [])
+            
+            # Count totals
+            total_dbs = len(hierarchy)
+            total_schemas = sum(len(schemas) for schemas in hierarchy.values())
+            total_tables = sum(len(tables) for schemas in hierarchy.values() for tables in schemas.values())
+            
+            # Flatten for display - list databases with schema counts
+            database_summaries = []
+            for db_name, schemas in sorted(hierarchy.items()):
+                schema_count = len(schemas)
+                table_count = sum(len(tables) for tables in schemas.values())
+                database_summaries.append({
+                    "database": db_name,
+                    "schema_count": schema_count,
+                    "table_count": table_count,
+                    "schemas": list(sorted(schemas.keys()))
+                })
+            
+            summary = f"Found {total_dbs} database(s) with {total_schemas} schema(s) and {total_tables} table(s)"
+            
+            finding = AgentFinding(
+                agent_id=self.agent_id,
+                subtask_id="hierarchy_discovery",
+                task_description=task,
+                finding_type="classification",
+                target_entity=None,
+                summary=summary,
+                details={
+                    "hierarchy_type": "database_schema_table",
+                    "databases": database_summaries,
+                    "total_databases": total_dbs,
+                    "total_schemas": total_schemas,
+                    "total_tables": total_tables,
+                    "raw_entities_count": len(entities)
+                },
+                confidence=0.9,
+                proposed_actions=[],
+                mcp_tool_calls=[],
+                llm_reasoning=f"Built hierarchy by parsing FQN from {len(entities)} search results. Format: database -> schema -> table"
+            )
+            
+            return finding
+    
     def _build_search_query(self, task: str, entity_type: str = "table") -> str:
         """
         Build an optimized search query from the task description.
@@ -75,6 +171,16 @@ class CatalogScout(SwarmAgent):
             Optimized search query string
         """
         task_lower = task.lower().strip()
+        
+        # Hierarchy building keywords
+        hierarchy_keywords = [
+            "hierarchy", "hierarchical", "relationships", "structure",
+            "database hierarchy", "schema hierarchy", "nested"
+        ]
+        
+        # Check if task mentions hierarchy
+        if any(kw in task_lower for kw in hierarchy_keywords):
+            return "_build_hierarchy"
         
         # Handle common patterns - exact match first
         list_all_tables_patterns = [
@@ -185,6 +291,10 @@ class CatalogScout(SwarmAgent):
             database = inputs["database"]
         
         try:
+            # Check if this is a hierarchy task
+            if self._build_search_query(task) == "_build_hierarchy":
+                return await self._build_hierarchy(task, mcp_client)
+            
             # Use the MCP client to search for entities using keyword search
             # Use search_metadata_all to get ALL results with pagination
             async with mcp_client as client:
