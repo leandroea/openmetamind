@@ -220,23 +220,35 @@ User request: {user_request}
 Available agents:
 {agent_capabilities}
 
-IMPORTANT: When the user request mentions a specific table or entity (e.g., "the big_data_table_with_nested_columns table" or "sample_data.ecommerce_db.shopify.big_data_table_with_nested_columns"), you MUST:
-1. The discovering agent (catalog_scout) should be first to locate the table and store its FQN
-2. The second agent should use "required_inputs": ["table_fqn"] to receive the FQN from blackboard
-3. Do NOT try to embed the FQN directly in required_inputs - the supervisor extracts it from previous findings
+CRITICAL RULE - ALWAYS follow this pattern for entity-specific queries:
+When the user request mentions a specific table or entity name (e.g., "Describe openmetadata-table-bench", "What is big_data_table", "Find the customer_orders table"), you MUST create TWO subtasks:
+1. First subtask: agent_id="catalog_scout", task_description="Find and identify [entity name] in the catalog", produces_output="table_fqn" or "entity_fqn"
+2. Second subtask: agent_id="documentation_agent", task_description=[original user request], required_inputs=["table_fqn"], depends on first subtask
 
-IMPORTANT: For explanation/analysis tasks (e.g., "Explain nested columns in X", "Describe structure of X"), route to documentation_agent NOT quality_guardian. The documentation_agent has an explain mode that returns text explanations without actions.
+This applies even if the task seems to be a simple "describe" or "explain" - catalog_scout must run first to establish the FQN.
 
-Example:
-- Task: "Explain the nested column structures in big_data_table_with_nested_columns"
-- Subtask 1: {{"subtask_id": "discover_nested_table", "agent_id": "catalog_scout", "task_description": "Find the big_data_table_with_nested_columns table", "required_inputs": [], "produces_output": "table_fqn"}}
-- Subtask 2: {{"subtask_id": "explain_nested_columns", "agent_id": "documentation_agent", "task_description": "Explain the nested column structures in big_data_table_with_nested_columns", "required_inputs": ["table_fqn"], "dependencies": ["discover_nested_table"]}}
-- Note: Do NOT add "table_fqn: <something>" to required_inputs - just use the key name
+EXAMPLES OF REQUIRED TWO-STEP ROUTING:
+- Task: "Describe openmetadata-table-bench"
+  -> Subtask 1: catalog_scout to find "openmetadata-table-bench" and produce table_fqn
+  -> Subtask 2: documentation_agent with required_inputs=["table_fqn"]
 
-Examples:
-- Task: "Find all tables missing descriptions" -> catalog_scout first, then documentation_agent
-- Task: "Check data quality for customer_orders" -> catalog_scout first to find the table, then quality_guardian
-- Task: "Profile the big_data_table_with_nested_columns table" -> catalog_scout to find it, then quality_guardian with table_fqn
+- Task: "What is the customer_orders table"
+  -> Subtask 1: catalog_scout to find "customer_orders" and produce table_fqn
+  -> Subtask 2: documentation_agent with required_inputs=["table_fqn"]
+
+- Task: "Find the big_data_table_with_nested_columns"
+  -> Subtask 1: catalog_scout to find it and produce table_fqn
+  -> Subtask 2: documentation_agent with required_inputs=["table_fqn"]
+
+DO NOT create a single subtask directly to documentation_agent for entity-specific queries.
+DO NOT skip the catalog_scout discovery step for named entity queries.
+
+For generic/hierarchy tasks (no specific entity name mentioned):
+- "Show me all databases" -> catalog_scout alone
+- "List the hierarchy" -> catalog_scout alone
+- "Find tables missing descriptions" -> catalog_scout then documentation_agent
+
+Only use single-agent plans when NO specific entity is named.
 """
         )
         

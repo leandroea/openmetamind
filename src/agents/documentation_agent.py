@@ -583,8 +583,30 @@ Your description:"""
         logger.info(f"[DocumentationAgent] execute() called with task: {task[:100]}")
         
         # Check if this is an explanation/analysis task (vs documentation task)
-        if self._is_explain_task(task):
+        # BUT only if we have table_fqn from inputs - otherwise be more careful
+        if self._is_explain_task(task) and inputs and inputs.get("table_fqn"):
             return await self._explain_nested_columns(task, inputs, mcp_client)
+        
+        # Safety net: if no table_fqn from inputs but task mentions a specific entity, parse it
+        if not inputs or (not inputs.get("table_fqn") and not inputs.get("entity_fqn")):
+            logger.info("[DocumentationAgent] No table_fqn from previous agent, checking task for entity name...")
+            # Try to extract entity name from task
+            task_lower = task.lower()
+            # Look for patterns like "describe openmetadata-table-bench" or "what is the big_table"
+            for prefix in ["describe ", "what is ", "find the ", "what's "]:
+                if prefix in task_lower:
+                    potential_name = task_lower.split(prefix)[-1].strip()
+                    # Clean up common suffixes
+                    for suffix in [" table", " entity", " in the catalog", " in openmetadata"]:
+                        if potential_name.endswith(suffix):
+                            potential_name = potential_name[:-len(suffix)].strip()
+                    if potential_name and len(potential_name) > 2:
+                        logger.info(f"[DocumentationAgent] Extracted entity name from task: '{potential_name}'")
+                        # Store as table_fqn so it gets used
+                        if inputs is None:
+                            inputs = {}
+                        inputs["table_fqn"] = potential_name
+                        break
         
         if mcp_client is None:
             mcp_client = get_mcp_client()
