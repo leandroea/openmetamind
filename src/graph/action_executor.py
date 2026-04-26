@@ -155,7 +155,7 @@ class ActionExecutor:
                 owners=action.parameters.get("owners")
             ),
             ActionType.UPDATE_LINEAGE: lambda client, action: client._call_mcp_tool(
-                "update_lineage", action.parameters
+                "create_lineage", action.parameters
             ),
             ActionType.ADD_OWNER: lambda client, action: client.add_owner(
                 fqn=action.target_entity,
