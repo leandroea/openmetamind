@@ -94,13 +94,22 @@ class CatalogScout(SwarmAgent):
                     "Tags", "Permissions", "Roles", "Sessions", "Tokens",
                     "Analytics", "Widgets", "Pages", "Views", "Metrics",
                     # Plural forms common in data catalogs
-                    "dim(", "fact(", "agg_", "temp_"
+                    "dim(", "fact(", "agg_", "temp_",
+                    # Additional system patterns
+                    "sample_", "test_", "demo_",
+                    # More entity patterns that shouldn't be databases
+                    "employee_", "address_", "customer_", "product_"
                 ]
                 db_names = []
                 for d in databases:
                     name = d.get("name") or d.get("fullyQualifiedName", "")
                     name_lower = name.lower()
-                # Skip if name matches any non-db pattern (substring match, case-insensitive)
+                    
+                    # Skip if name matches any non-db pattern (substring match, case-insensitive)
+                    if any(pattern in name_lower for pattern in non_db_patterns):
+                        continue
+                    
+                    # Also check exact match against non-database names
                     non_db_names = {
                         "categories", "comments", "users", "posts", "products",
                         "orders", "inventory", "settings", "config", "logs",
