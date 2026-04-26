@@ -156,6 +156,8 @@ class Supervisor:
         mcp_client = get_mcp_client()
         try:
             async with mcp_client as client:
+                logger.info(f"[Supervisor] Passing inputs to {agent_id}: {inputs}")
+                logger.info(f"[Supervisor] Task description: {task_description[:100] if task_description else 'None'}")
                 finding = await agent.execute(
                     task=task_description,
                     inputs=inputs,
