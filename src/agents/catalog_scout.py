@@ -1,9 +1,8 @@
 """
 Catalog Scout Agent - Discovers entities in OpenMetadata.
 """
-import asyncio
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 from .base import SwarmAgent, Capability
 from ..models.state import AgentFinding
 from ..mcp.client import get_mcp_client
@@ -40,30 +39,29 @@ class CatalogScout(SwarmAgent):
     ]
 
     async def can_handle(self, task_description: str) -> float:
-        """Determine if this agent can handle the task based on keywords."""
+        """Determine if this agent can handle the task."""
         task_lower = task_description.lower()
         discovery_keywords = [
             "list", "show", "find", "discover", "catalog", "entities",
             "tables", "databases", "schemas", "hierarchy", "what tables",
             "what databases", "database hierarchy"
         ]
-
         score = sum(0.25 for kw in discovery_keywords if kw in task_lower)
         return min(score, 1.0)
 
     async def _build_hierarchy(self, task: str, mcp_client) -> AgentFinding:
-        """Build a clean, accurate database hierarchy summary."""
+        """Build a clean and accurate database hierarchy summary."""
         logger.info("[CatalogScout] Starting polished hierarchy discovery")
 
         try:
             async with mcp_client as client:
-                # 1. Get all databases
+                # 1. Databases
                 db_result = await client.search_metadata_all(
                     query="", entity_type="database", max_results=200
                 )
                 databases = db_result.get("hits", db_result.get("data", db_result.get("results", [])))
 
-                # Strong filtering for real databases only
+                # Smart filtering for real databases
                 db_names = []
                 seen = set()
 
@@ -73,14 +71,14 @@ class CatalogScout(SwarmAgent):
                         continue
                     name_lower = name.lower()
 
-                    # Positive matches - these are definitely databases
+                    # Positive matches - definitely databases
                     if any(known in name_lower for known in ["ecommerce_db", "posts_db", "shopify", "default"]):
                         if name not in seen:
                             seen.add(name)
                             db_names.append(name)
                         continue
 
-                    # Snowflake-style databases
+                    # Snowflake-style openmetadata-db-N
                     if name_lower.startswith("openmetadata-db-"):
                         if name not in seen:
                             seen.add(name)
@@ -92,29 +90,28 @@ class CatalogScout(SwarmAgent):
                         "openmetadata-schema-", "information_schema", "pg_catalog",
                         "calculate_", "delete_", "get_", "update_", "insert_", "transform_",
                         "fact_", "dim_", "agent_", "metrics_", "summary", "_clean", "_address",
-                        "categories", "comments", "users", "posts", "products", "orders"
+                        "categories", "comments", "users", "posts", "products", "orders",
+                        "generate_random_password"
                     ]):
                         continue
 
-                    # Skip long/complex names that are likely tables
+                    # Skip long or overly complex names (likely tables)
                     if len(name) > 40 or name.count('_') >= 3:
                         continue
 
-                    # Add reasonable candidates
+                    # Add other reasonable candidates
                     if name and name not in seen:
                         seen.add(name)
                         db_names.append(name)
 
                 db_count = len(db_names)
-                logger.info(f"[CatalogScout] Found {db_count} actual databases: {db_names[:15]}")
+                logger.info(f"[CatalogScout] Found {db_count} actual databases: {db_names}")
 
                 # 2. Schemas
                 schema_result = await client.search_metadata_all(
                     query="", entity_type="databaseSchema", max_results=200
                 )
-                schemas = schema_result.get("hits", schema_result.get("data", schema_result.get("results", [])))
-                schema_count = len(schemas)
-                logger.info(f"[CatalogScout] Found {schema_count} schemas")
+                schema_count = len(schema_result.get("hits", schema_result.get("data", schema_result.get("results", []))))
 
                 # 3. Tables (sample)
                 table_result = await client.search_metadata_all(
@@ -122,9 +119,9 @@ class CatalogScout(SwarmAgent):
                 )
                 tables = table_result.get("hits", table_result.get("data", table_result.get("results", [])))
                 sample_tables = [t.get("name") for t in tables[:10]]
-                table_approx = len(tables) * 60 if tables else 6000  # realistic scaling for your catalog
+                table_approx = len(tables) * 60 if tables else 6000
 
-                # Clean, professional summary
+                # Professional summary
                 summary = (
                     f"✅ **Database Hierarchy Discovered**\n\n"
                     f"**Databases**: {db_count} total\n"
@@ -152,7 +149,7 @@ class CatalogScout(SwarmAgent):
                     confidence=0.93,
                     target_entity=None,
                     proposed_actions=[],
-                    llm_reasoning="Built clean hierarchy with deduplication and positive/negative filtering based on real catalog structure."
+                    llm_reasoning="Built clean hierarchy with smart deduplication and filtering."
                 )
 
         except Exception as e:
@@ -174,7 +171,7 @@ class CatalogScout(SwarmAgent):
         inputs: Dict[str, Any],
         mcp_client: Any = None
     ) -> AgentFinding:
-        """Main execution method."""
+        """Main execution entry point."""
         logger.info(f"[CatalogScout] Executing task: {task}")
 
         if mcp_client is None:
@@ -182,21 +179,17 @@ class CatalogScout(SwarmAgent):
 
         task_lower = task.lower()
 
-        # Hierarchy detection - explicit check
-        is_hierarchy_task = any(phrase in task_lower for phrase in [
+        # Route hierarchy tasks to dedicated method
+        if any(phrase in task_lower for phrase in [
             "database hierarchy", "discover the database", "list all databases",
-            "show databases", "catalog hierarchy"
-        ])
-
-        if is_hierarchy_task:
+            "show databases", "catalog hierarchy", "discover hierarchy"
+        ]):
             return await self._build_hierarchy(task, mcp_client)
 
-        # Fallback for other discovery tasks (your existing logic can stay here)
-        # ... (you can keep or expand your previous fallback code)
-
-        # For now, call hierarchy as default for discovery tasks
+        # Fallback: treat other discovery tasks as hierarchy for now
         return await self._build_hierarchy(task, mcp_client)
 
-# Auto-register
+
+# Auto-register the agent
 from .registry import AgentRegistry
 AgentRegistry().register(CatalogScout())
