@@ -103,10 +103,14 @@ class CatalogScout(SwarmAgent):
                 # Define explicit allow patterns - ONLY these should be considered databases
                 # This is a positive list approach for known good database patterns
                 known_db_prefixes = [
-                    "ecommerce", "openmetadata-db-", "posts_db", "shopify"
+                    "ecommerce_db", "posts_db", "shopify"
                 ]
                 known_db_exact = [
                     "default"  # default database from various services (Glue, MySQL, etc.)
+                ]
+                # Specific patterns for Snowflake OpenMetadata databases (openmetadata-db-N, NOT openmetadata-schema-N)
+                snowflake_db_patterns = [
+                    "openmetadata-db-"
                 ]
                 
                 db_names = []
@@ -114,8 +118,11 @@ class CatalogScout(SwarmAgent):
                     name = d.get("name") or d.get("fullyQualifiedName", "")
                     name_lower = name.lower()
                     
+                    # Check if it matches Snowflake database patterns (openmetadata-db-N, not schema)
+                    is_snowflake_db = any(name_lower.startswith(p.lower()) for p in snowflake_db_patterns)
+                    
                     # Check if it matches a known database prefix
-                    is_known_db = any(name_lower.startswith(prefix.lower()) for prefix in known_db_prefixes)
+                    is_known_db = is_snowflake_db or any(name_lower.startswith(prefix.lower()) for prefix in known_db_prefixes)
                     is_known_exact = name_lower in [exact.lower() for exact in known_db_exact]
                     
                     # Skip if name matches any non-db pattern (substring match, case-insensitive)
@@ -131,6 +138,10 @@ class CatalogScout(SwarmAgent):
                         "analytics", "widgets", "pages", "views", "metrics"
                     }
                     if name_lower in non_db_names:
+                        continue
+                    
+                    # Specifically exclude openmetadata-schema-* (these are schemas, not databases)
+                    if name_lower.startswith("openmetadata-schema-"):
                         continue
                     
                     # Only include if it's a known database or doesn't match any exclusion criteria
