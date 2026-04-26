@@ -83,7 +83,11 @@ class CatalogScout(SwarmAgent):
                     "agent_", "fact_", "dim_", "marketing_", "global_", "ice_",
                     "_summary", "_metrics", "_daily", "_clean", "_address", "_location",
                     "_staff", "_events", "_line_item", "_order", "_sale", "_session",
-                    "_transactions", "_product", "_shop", "_variant"
+                    "_transactions", "_product", "_shop", "_variant",
+                    # Common table/entity names that shouldn't be databases
+                    "Categories", "Comments", "Users", "Posts", "Products", 
+                    "Orders", "Inventory", "Settings", "Config", "Logs",
+                    "Events", "Tasks", "Jobs", "History", "Archive"
                 ]
                 db_names = []
                 for d in databases:
