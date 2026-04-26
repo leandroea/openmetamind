@@ -72,6 +72,9 @@ class CatalogScout(SwarmAgent):
         This helper ensures we get the complete list of entities by continuing
         to fetch pages until no more results are available.
         
+        IMPORTANT: The MCP server caps results at 50 per call regardless of 'size' parameter.
+        We advance offset by the actual count returned, not the requested size.
+        
         Args:
             mcp_client: MCP client for OpenMetadata
             entity_type: Type of entity (e.g., "table", "database", "databaseSchema")
@@ -82,7 +85,7 @@ class CatalogScout(SwarmAgent):
         """
         all_entities = []
         current_offset = 0
-        page_size = 100  # Fetch 100 at a time for efficiency
+        page_size = 100  # Request 100 but server may return fewer (max 50)
         
         async with mcp_client as client:
             while len(all_entities) < max_results:
@@ -113,24 +116,20 @@ class CatalogScout(SwarmAgent):
                     logger.info(f"[CatalogScout] Pagination fetch for {entity_type}: offset={current_offset}, fetched={fetched_count}, cumulative={len(all_entities)}, totalFound={total_found}, has_more={has_more}")
                     
                     # Stop conditions:
-                    # 1. No more pages (has_more=False)
-                    # 2. We've fetched at least totalFound (even if has_more is still True)
-                    # 3. Last page was partial (less than page_size) meaning end of results
-                    if not has_more:
-                        logger.info(f"[CatalogScout] Pagination: has_more=False, stopping")
+                    # 1. No results returned (empty page)
+                    # 2. We've fetched at least totalFound
+                    if not entities:
+                        logger.info(f"[CatalogScout] Pagination: empty result, stopping")
                         break
                     
                     if total_found > 0 and len(all_entities) >= total_found:
                         logger.info(f"[CatalogScout] Pagination: fetched {len(all_entities)} >= totalFound {total_found}, stopping")
                         break
                     
-                    # If we got a partial page (less than requested), we've reached the end
-                    if fetched_count < page_size:
-                        logger.info(f"[CatalogScout] Pagination: partial page ({fetched_count} < {page_size}), stopping")
-                        break
-                    
-                    # Move to next page
-                    current_offset += page_size
+                    # Advance offset by ACTUAL count returned, not requested size
+                    # The server caps at 50 per call regardless of size parameter
+                    current_offset += fetched_count
+                    logger.info(f"[CatalogScout] Pagination: advanced offset to {current_offset}")
                     
                 except Exception as e:
                     logger.warning(f"[CatalogScout] Error during pagination for {entity_type} at offset {current_offset}: {e}")
