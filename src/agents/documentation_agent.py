@@ -217,12 +217,6 @@ class DocumentationAgent(SwarmAgent):
         
         # Extract table/entity name from task
         table_fqn = inputs.get("table_fqn") or inputs.get("entity_fqn")
-        
-        # BRUTE FORCE TEST: Use the known FQN if inputs don't have it
-        if not table_fqn:
-            table_fqn = "sample_data.ecommerce_db.shopify.big_data_table_with_nested_columns"
-            logger.info(f"[_explain_nested_columns] Using hardcoded FQN for testing: {table_fqn}")
-        
         if not table_fqn:
             table_fqn = self._extract_table_name_from_task(task) or self._extract_database_from_task(task)
         
