@@ -95,6 +95,9 @@ class CatalogScout(SwarmAgent):
                     # Skip names with underscores starting with common verb prefixes (likely functions/procs)
                     if any(name_lower.startswith(p) for p in ["calculate", "delete", "get", "update", "insert", "transform", "drop", "create", "alter", "exec"]):
                         continue
+                    # Skip names that look like schema names (e.g., openmetadata-schema-0, shopify_schema)
+                    if "-schema" in name_lower or name_lower.startswith("schema_"):
+                        continue
                     # Skip names that look like table/entity names (have multiple underscores - snake_case tables)
                     if name.count('_') >= 2:
                         continue
