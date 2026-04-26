@@ -749,14 +749,14 @@ class CatalogScout(SwarmAgent):
 
         # 3. Default fallback for other discovery tasks
         # BUT if it's a documentation discovery task (find undocumented/missing), 
-        # don't return hierarchy - return "not handled" to let it route to documentation_agent
+        # don't return hierarchy - return "other" to indicate it should route to documentation_agent
         if any(term in task_lower for term in ["undocumented", "missing doc", "empty description", "no description", "missing description", "tables without"]):
-            logger.info(f"[CatalogScout] Task '{task}' is a documentation discovery task - returning not_handled to allow routing to documentation_agent")
+            logger.info(f"[CatalogScout] Task '{task}' is a documentation discovery task - returning 'other' to allow routing to documentation_agent")
             return AgentFinding(
                 agent_id=self.agent_id,
-                subtask_id="not_handled",
+                subtask_id="skip_routing",
                 task_description=task,
-                finding_type="not_handled",
+                finding_type="other",
                 summary=f"Task requires documentation_agent - catalog_scout skipping",
                 details={"routing": "documentation_agent", "reason": "documentation_discovery_task"},
                 confidence=0.0,
