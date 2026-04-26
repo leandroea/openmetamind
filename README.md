@@ -45,73 +45,70 @@ OpenMetaMind rejects all of these. It provides:
 
 ## System Architecture
 
-OpenMetaMind follows a **sequential Supervisor/Manager pattern** for multi-agent orchestration. Unlike parallel swarm architectures, agents execute one at a time, synthesizing results before moving to the next task. This eliminates concurrent state update conflicts and makes debugging straightforward.
+OpenMetaMind uses the **Supervisor/Manager pattern** for multi-agent orchestration. The Coordinator is the entry point that classifies user intent and decides whether to answer directly, delegate to the swarm, or ask for clarification. When delegation is needed, the flow proceeds through a sequential pipeline where tasks are executed one by one and results are synthesized before moving to the next phase.
 
-### High-Level Flow
+The complete LangGraph workflow follows this sequence:
 
 ```
-+-------------+     +-------------+     +-----------------------------+
-|   USER      |---->| COORDINATOR |---->|        PLANNER              |
-|  (Streamlit |     |  (LangGraph |     |  - Decomposes task          |
-|   /Slack)   |     |   Node)     |     |  - Queries Agent Registry   |
-+-------------+     +-------------+     |  - Generates execution DAG  |
-           ^                             +-----------------------------+
-           |                                          |
-           |                                          v
-           |                             +-----------------------------+
-           |                             |      DISPATCHER             |
-           |                             |  - Initializes task queue   |
-           |                             |  - Sets execution order     |
-           |                             +-----------------------------+
-           |                                          |
-           |                                          v
-           |                             +-----------------------------+
-           |                             |      SUPERVISOR              |
-           |                             |  - Iterates through tasks   |
-           |                             |  - Calls agents sequentially |
-           |                             |  - Synthesizes results      |
-           |                             +-----------------------------+
-           |                                          |
-           |                           +--------------+---------------+
-           |                           v                              v
-           |                   +-------------+              +-------------+
-           |                   |  Agent A    |              |  Agent B    |
-           |                   |  (Plugin)   |              |  (Plugin)   |
-           |                   +-------------+              +-------------+
-           |                                         |
-           |                                         v
-           |                          +-----------------------------+
-           |                          |      BLACKBOARD             |
-           |                          |  (Append-only shared state) |
-           |                          +-----------------------------+
-           |                                         |
-           |                                         v
-           |                          +-----------------------------+
-           |                          |   INTEGRITY CRITIC          |
-           |                          |  - Validates all findings    |
-           |                          |  - Detects conflicts        |
-           |                          |  - Assigns confidence       |
-           |                          +-----------------------------+
-           |                                         |
-           |                          +------------+------------+
-           |                          v                         v
-           |               +-----------------+      +-----------------+
-           |               | AUTO-APPROVE    |      | HUMAN GATE      |
-           |               | (confidence >   |      | (Streamlit/     |
-           |               |  threshold)     |      |  Slack)         |
-           |               +-----------------+      +-----------------+
-           |                        |                        |
-           |                        +------------+-----------+
-           |                                     v
-           |                          +-----------------------------+
-           |                          |    ACTION EXECUTOR          |
-           |                          |  - MCP write operations     |
-           |                          |  - Batched, idempotent      |
-           |                          +-----------------------------+
-           |                                     |
-           +-------------------------------------+
-                         (Response + Audit Trail)
+Coordinator (entry point)
+    │
+    ├─► END (answer directly / clarify / self-identity / team roster)
+    │
+    └─► Planner
+             │
+             ▼
+        Dispatcher
+             │
+             ▼
+        Supervisor ◄──┐ (loops while tasks remain)
+             │        │
+             ▼        │
+    Integrity Critic  │ (after all tasks complete)
+             │
+       ┌─────┼─────┐
+       ▼     ▼     ▼
+   END   Planner  Action Executor
+  (human    (retry)    │
+  approval)            ▼
+                   END (execution complete)
 ```
+
+### Node Flow Details
+
+| From | To | Condition |
+|------|-----|-----------|
+| Coordinator | Planner | `next = "planner"` (delegate intent) |
+| Coordinator | END | `next = "end"` (answer/clarify/self-identity/roster) |
+| Planner | Dispatcher | Always (after creating execution plan) |
+| Dispatcher | Supervisor | Always (initializes task queue) |
+| Supervisor | Supervisor | `next = "supervisor"` (more tasks pending) |
+| Supervisor | Integrity Critic | `next = "integrity_critic"` (all tasks done) |
+| Integrity Critic | Action Executor | Auto-approve (high confidence) |
+| Integrity Critic | Planner | Retry (low confidence, needs replanning) |
+| Integrity Critic | END | Human gate (requires user approval) |
+| Action Executor | END | Always (after executing proposed actions) |
+
+### Supervisor Loop Pattern
+
+The Supervisor iterates through tasks **sequentially** (not in parallel). After each task completes, the Supervisor updates the state and either loops back for the next task or moves to the Integrity Critic.
+
+```
+Supervisor called with pending_tasks = [TaskA, TaskB, TaskC]
+
+1. Execute TaskA → Agent returns FindingA
+2. Update state: findings = [FindingA], pending_tasks = [TaskB, TaskC]
+3. Return "next": "supervisor" → Loop back
+
+4. Execute TaskB → Agent returns FindingB
+5. Update state: findings = [FindingA, FindingB], pending_tasks = [TaskC]
+6. Return "next": "supervisor" → Loop back
+
+7. Execute TaskC → Agent returns FindingC
+8. Update state: findings = [FindingA, FindingB, FindingC], pending_tasks = []
+9. Return "next": "integrity_critic" → Move to critic
+```
+
+This sequential approach eliminates concurrent state update conflicts and makes debugging straightforward.
 
 ### Core Components
 
@@ -409,7 +406,3 @@ mypy src
 ```
 
 ---
-
-## License
-
-MIT
