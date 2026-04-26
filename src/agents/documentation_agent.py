@@ -387,17 +387,20 @@ Be concise but informative. Do not suggest actions - just explain what you obser
                     logger.info(f"[_discover_undocumented_entities] Search returned {len(all_entities)} entities")
             
             logger.info(f"[_discover_undocumented_entities] About to process {len(all_entities)} entities for undocumented check")
-            logger.info(f"[_discover_undocumented_entities] First entity sample: {all_entities[0] if all_entities else 'EMPTY'}")
+            logger.info(f"[_discover_undocumented_entities] _PLACEHOLDER_DESCRIPTIONS: {self._PLACEHOLDER_DESCRIPTIONS}")
             
             for idx, entity in enumerate(all_entities):
-                if idx < 5:
-                    name = entity.get("fullyQualifiedName", entity.get("name", "UNKNOWN"))
-                    desc = entity.get("description", "FIELD_MISSING")
-                    is_missing = self._is_missing_description(desc, name)
-                    logger.info(f"[_discover_undocumented_entities] Entity {idx}: {name} | Desc: '{desc[:50]}...' | Missing: {is_missing}")
-                
                 name = entity.get("fullyQualifiedName", entity.get("name", ""))
-                description = entity.get("description", "FIELD_MISSING")
+                raw_desc = entity.get("description")
+                description = raw_desc if raw_desc is not None else "FIELD_MISSING"
+                desc_lower = description.lower().strip()
+                
+                if idx < 5:
+                    is_missing = self._is_missing_description(description, name)
+                    logger.info(f"[_discover_undocumented_entities] Entity {idx}: {name}")
+                    logger.info(f"  Raw description: {raw_desc}, Processed: '{description}', Lower: '{desc_lower}'")
+                    logger.info(f"  Is missing: {is_missing}")
+                    logger.info(f"  Name lower: '{name.lower()}', Desc equals name: {desc_lower == name.lower()}")
                 
                 if self._is_missing_description(description, entity_name=name):
                     context = {
