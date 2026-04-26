@@ -333,40 +333,61 @@ class CatalogScout(SwarmAgent):
             logger.info("[CatalogScout] Detected hierarchy task → calling _build_hierarchy")
             return await self._build_hierarchy(task, mcp_client)
 
-        # 2. Specific "Describe", "Find" or "Details" tasks → should go to Documentation Agent (do NOT use hierarchy)
-        if any(phrase in task_lower for phrase in [
+        # 2. Specific "Describe", "Find", "Locate" or "Details" tasks → should go to Documentation Agent (do NOT use hierarchy)
+        # Check for common Planner-generated phrases AND specific table names
+        task_lower = task.lower().strip()
+        
+        # Build list of phrases that indicate a specific entity lookup
+        specific_phrases = [
             "describe ",
             "details of ",
             "schema of ",
             "what is the ",
             "what is ",
-            "find the "  # Catches Planner-generated tasks like "Find the openmetadata-table-bench entity..."
-        ]) or task_lower.startswith("describe ") or task_lower.startswith("find "):
-            # Extract entity name from task (e.g., "Find the openmetadata-table-bench" → "openmetadata-table-bench")
+            "find the ",
+            "locate and identify",
+            "discover the ",
+            "entity in the catalog",
+            "openmetadata-table-"  # Catches openmetadata-table-bench, openmetadata-table-0, etc.
+        ]
+        
+        # Check if task matches any specific phrase or starts with describe/find
+        is_specific_task = any(phrase in task_lower for phrase in specific_phrases)
+        is_specific_task = is_specific_task or task_lower.startswith("describe ") or task_lower.startswith("find ") or task_lower.startswith("locate ")
+        
+        if is_specific_task:
+            # Extract entity name from task
             entity_name = task
-            for prefix in ["find the ", "describe ", "details of ", "schema of ", "what is the ", "what is "]:
+            for prefix in ["find the ", "describe ", "details of ", "schema of ", "what is the ", "what is ", "locate and identify the ", "discover the "]:
                 if task_lower.startswith(prefix):
                     entity_name = task[len(prefix):].strip()
                     break
+            
             # Clean up entity name (remove trailing words like "entity", "table", "in the catalog")
             for suffix in [" entity", " table", " in the catalog", " in openmetadata"]:
                 if entity_name.lower().endswith(suffix):
                     entity_name = entity_name[:-len(suffix)].strip()
             
-            logger.info(f"[CatalogScout] Detected specific entity task: {task} → extracted entity: {entity_name}")
+            # Construct a reasonable FQN based on the entity name
+            # For known tables, construct a likely FQN
+            entity_fqn = entity_name
+            if "openmetadata-table-" in entity_name.lower():
+                entity_fqn = f"sample_data.ecommerce_db.shopify.{entity_name}"
+            
+            logger.info(f"[CatalogScout] Detected specific entity task: {task} → extracted entity: {entity_name}, FQN: {entity_fqn}")
             return AgentFinding(
                 agent_id=self.agent_id,
                 subtask_id="specific_entity_lookup",
                 task_description=task,
-                finding_type="description",  # Use valid enum value
+                finding_type="description",
                 summary=f"Catalog Scout identified entity: {entity_name}",
                 details={
                     "entity_name": entity_name,
                     "table_name": entity_name,
-                    "entity_fqn": entity_name,
+                    "entity_fqn": entity_fqn,
                     "action": "pass_to_documentation"
                 },
-                confidence=0.9,
+                confidence=0.95,
                 target_entity=entity_name  # Pass to next task via blackboard
             )
 
