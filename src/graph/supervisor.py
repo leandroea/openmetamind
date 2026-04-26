@@ -200,8 +200,9 @@ class Supervisor:
             if key in blackboard:
                 inputs[key] = blackboard[key]
             
-            # Special handling for table_fqn - extract from previous finding's target_entity or details
-            if key == "table_fqn" and key not in inputs and findings:
+            # Special handling for table_fqn and entity_fqn - extract from previous finding's target_entity or details
+            fqn_keys = ["table_fqn", "entity_fqn"]
+            if key in fqn_keys and key not in inputs and findings:
                 # Get the most recent finding with a target_entity or details.entities
                 for finding in reversed(findings):
                     logger.info(f"[_prepare_inputs] Checking finding: agent={getattr(finding, 'agent_id', '?')}, target={getattr(finding, 'target_entity', 'None')}")
