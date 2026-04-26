@@ -648,7 +648,15 @@ class CatalogScout(SwarmAgent):
         
         # Check if task matches any specific phrase or starts with describe/find
         is_specific_task = any(phrase in task_lower for phrase in specific_phrases)
-        is_specific_task = is_specific_task or task_lower.startswith("describe ") or task_lower.startswith("find ") or task_lower.startswith("locate ")
+        is_specific_task = is_specific_task or task_lower.startswith("describe ") or task_lower.startswith("locate ")
+        
+        # "find " is more nuanced - only count as specific entity task if NOT about finding
+        # undocumented/missing/empty entities (those should go to documentation_agent)
+        if task_lower.startswith("find ") and not is_specific_task:
+            # Check if it's about finding undocumented/missing entities
+            discovery_terms = ["undocumented", "missing", "empty", "no description", "without description", "tables without"]
+            if not any(term in task_lower for term in discovery_terms):
+                is_specific_task = True
         
         if is_specific_task:
             # Extract entity name from task - be more robust with various prefixes
