@@ -595,15 +595,17 @@ class CatalogScout(SwarmAgent):
 
         # === STRICT ROUTING ===
         # 1. "List all tables" request -> dedicated flat list (NOT hierarchy)
-        if any(phrase in task_lower for phrase in [
-            "list all tables",
-            "list all the tables",
-            "list tables in the catalog",
-            "all tables in the catalog",
-            "show every table"
-        ]):
-            logger.info("[CatalogScout] Detected list-all-tables task → calling _list_all_tables")
-            return await self._list_all_tables(task, mcp_client)
+        #    BUT only if NOT about finding undocumented/missing entities
+        if not any(neg in task_lower for neg in ["undocumented", "missing doc", "empty description", "no description", "missing description"]):
+            if any(phrase in task_lower for phrase in [
+                "list all tables",
+                "list all the tables",
+                "list tables in the catalog",
+                "all tables in the catalog",
+                "show every table"
+            ]):
+                logger.info("[CatalogScout] Detected list-all-tables task → calling _list_all_tables")
+                return await self._list_all_tables(task, mcp_client)
         
         # 2. "List all databases" / "list databases" -> dedicated flat list (NOT hierarchy)
         if any(phrase in task_lower for phrase in [
