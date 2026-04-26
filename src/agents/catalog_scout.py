@@ -100,8 +100,15 @@ class CatalogScout(SwarmAgent):
                 for d in databases:
                     name = d.get("name") or d.get("fullyQualifiedName", "")
                     name_lower = name.lower()
-                    # Skip if name matches any non-db pattern
-                    if any(pattern in name_lower for pattern in non_db_patterns):
+                # Skip if name matches any non-db pattern (substring match, case-insensitive)
+                    non_db_names = {
+                        "categories", "comments", "users", "posts", "products",
+                        "orders", "inventory", "settings", "config", "logs",
+                        "events", "tasks", "jobs", "history", "archive",
+                        "tags", "permissions", "roles", "sessions", "tokens",
+                        "analytics", "widgets", "pages", "views", "metrics"
+                    }
+                    if name_lower in non_db_names:
                         continue
                     # Skip names with underscores starting with common verb prefixes (likely functions/procs)
                     if any(name_lower.startswith(p) for p in ["calculate", "delete", "get", "update", "insert", "transform", "drop", "create", "alter", "exec"]):
