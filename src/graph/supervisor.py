@@ -184,12 +184,23 @@ class Supervisor:
             Dictionary of inputs for the agent
         """
         blackboard = state.get("blackboard", {})
+        findings = blackboard.get("findings", [])
         required_inputs = task.get("required_inputs", []) if isinstance(task, dict) else getattr(task, 'required_inputs', [])
         
         inputs = {}
         for key in required_inputs:
+            # Check blackboard first
             if key in blackboard:
                 inputs[key] = blackboard[key]
+            
+            # Special handling for table_fqn - extract from previous finding's target_entity
+            if key == "table_fqn" and key not in inputs and findings:
+                # Get the most recent finding with a target_entity
+                for finding in reversed(findings):
+                    if hasattr(finding, 'target_entity') and finding.target_entity:
+                        inputs[key] = finding.target_entity
+                        logger.info(f"Supervisor: Extracted table_fqn='{finding.target_entity}' from previous finding")
+                        break
         
         return inputs
 
