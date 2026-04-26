@@ -330,15 +330,16 @@ class CatalogScout(SwarmAgent):
             logger.info("[CatalogScout] Detected hierarchy task → calling _build_hierarchy")
             return await self._build_hierarchy(task, mcp_client)
 
-        # 2. Specific "Describe" or "Details" tasks → should go to Documentation Agent (do NOT use hierarchy)
+        # 2. Specific "Describe", "Find" or "Details" tasks → should go to Documentation Agent (do NOT use hierarchy)
         if any(phrase in task_lower for phrase in [
-            "describe ", 
-            "details of ", 
-            "schema of ", 
+            "describe ",
+            "details of ",
+            "schema of ",
             "what is the ",
-            "what is "
-        ]) or task_lower.startswith("describe "):
-            logger.info(f"[CatalogScout] Detected specific describe task: {task} → returning simple finding so Coordinator routes to Documentation Agent")
+            "what is ",
+            "find the "  # Catches Planner-generated tasks like "Find the openmetadata-table-bench entity..."
+        ]) or task_lower.startswith("describe ") or task_lower.startswith("find "):
+            logger.info(f"[CatalogScout] Detected specific entity task: {task} → returning simple finding so Coordinator routes to Documentation Agent")
             return AgentFinding(
                 agent_id=self.agent_id,
                 subtask_id="specific_entity_lookup",
