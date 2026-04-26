@@ -246,7 +246,8 @@ DO NOT skip the catalog_scout discovery step for named entity queries.
 For generic/hierarchy tasks (no specific entity name mentioned):
 - "Show me all databases" -> catalog_scout alone
 - "List the hierarchy" -> catalog_scout alone
-- "Find tables missing descriptions" -> catalog_scout then documentation_agent
+- "Find undocumented tables" or "find tables without descriptions" -> catalog_scout alone with task_description="Find tables that have no description (are undocumented) and return the list of their FQNs"
+- "Find tables missing descriptions" -> catalog_scout alone
 
 Only use single-agent plans when NO specific entity is named.
 """

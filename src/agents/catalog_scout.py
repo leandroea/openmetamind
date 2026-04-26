@@ -333,6 +333,106 @@ class CatalogScout(SwarmAgent):
                 llm_reasoning=f"Error during table listing: {str(e)}"
             )
 
+    async def _find_undocumented_tables(self, task: str, mcp_client) -> AgentFinding:
+        """Find tables that have no description (are undocumented)."""
+        logger.info("[CatalogScout] Starting undocumented tables discovery")
+        
+        try:
+            # Fetch all tables with full pagination
+            table_result = await self._fetch_all_entities_with_pagination(mcp_client, "table", max_results=20000)
+            tables = table_result[0] if isinstance(table_result, tuple) else table_result.get("hits", table_result.get("results", []))
+            
+            # Placeholder descriptions that indicate missing documentation
+            PLACEHOLDER_DESCRIPTIONS = {
+                "undefined", "none", "null", "no description", "field_missing",
+                "no description available", "n/a"
+            }
+            
+            undocumented_tables = []
+            documented_tables = []
+            
+            for t in tables:
+                fqn = t.get("fullyQualifiedName", t.get("name", ""))
+                if not fqn:
+                    continue
+                    
+                description = t.get("description", "")
+                
+                # Normalize description for checking
+                if description is None or description.strip() == "":
+                    processed_desc = "FIELD_MISSING"
+                else:
+                    processed_desc = description.strip()
+                
+                # Check if description is missing
+                desc_lower = processed_desc.lower()
+                is_missing = (
+                    desc_lower in PLACEHOLDER_DESCRIPTIONS or
+                    desc_lower == fqn.lower() or
+                    desc_lower == t.get("name", "").lower()
+                )
+                
+                if is_missing:
+                    undocumented_tables.append(fqn)
+                else:
+                    documented_tables.append(fqn)
+            
+            total = len(tables)
+            undocumented_count = len(undocumented_tables)
+            documented_count = len(documented_tables)
+            
+            logger.info(f"[CatalogScout] Found {undocumented_count} undocumented tables out of {total} total")
+            
+            # Format summary showing undocumented tables
+            if undocumented_tables:
+                summary = (
+                    f"📋 **Undocumented Tables Found**\n\n"
+                    f"**{undocumented_count}** tables have no description out of **{total}** total tables\n\n"
+                    f"Undocumented tables:\n" + "\n".join([f"• {fqn}" for fqn in undocumented_tables[:100]])
+                )
+                if undocumented_count > 100:
+                    summary += f"\n... and {undocumented_count - 100} more (use 'get all undocumented table FQNs' for complete list)"
+            else:
+                summary = f"✅ **All Tables Documented**\n\nAll {total} tables have descriptions."
+            
+            details = {
+                "total_tables": total,
+                "undocumented_count": undocumented_count,
+                "documented_count": documented_count,
+                "undocumented_table_fqns": undocumented_tables,
+                "documented_table_fqns": documented_tables[:100]  # Limit to first 100
+            }
+            
+            return AgentFinding(
+                agent_id=self.agent_id,
+                subtask_id="find_undocumented_tables",
+                task_description=task,
+                finding_type="other",
+                summary=summary,
+                details=details,
+                confidence=0.95,
+                target_entity=None,
+                proposed_actions=[],
+                mcp_tool_calls=[],
+                llm_reasoning=f"Found {undocumented_count} undocumented tables by checking for placeholder descriptions."
+            )
+            
+        except Exception as e:
+            logger.error(f"[CatalogScout] Undocumented tables discovery error: {e}", exc_info=True)
+            return AgentFinding(
+                agent_id=self.agent_id,
+                subtask_id="find_undocumented_tables",
+                task_description=task,
+                finding_type="other",
+                summary=f"Error finding undocumented tables: {str(e)}",
+                details={"error": str(e)},
+                confidence=0.5,
+                target_entity=None,
+                proposed_actions=[],
+                mcp_tool_calls=[],
+                llm_reasoning=f"Error during undocumented tables discovery: {str(e)}"
+            )
+
     async def _build_hierarchy(self, task: str, mcp_client) -> AgentFinding:
         """Build and summarize the real database hierarchy."""
         logger.info("[CatalogScout] Starting hierarchy discovery")
@@ -594,18 +694,28 @@ class CatalogScout(SwarmAgent):
         task_lower = task.lower().strip()
 
         # === STRICT ROUTING ===
-        # 1. "List all tables" request -> dedicated flat list (NOT hierarchy)
-        #    BUT only if NOT about finding undocumented/missing entities
-        if not any(neg in task_lower for neg in ["undocumented", "missing doc", "empty description", "no description", "missing description"]):
-            if any(phrase in task_lower for phrase in [
-                "list all tables",
-                "list all the tables",
-                "list tables in the catalog",
-                "all tables in the catalog",
-                "show every table"
-            ]):
-                logger.info("[CatalogScout] Detected list-all-tables task → calling _list_all_tables")
-                return await self._list_all_tables(task, mcp_client)
+        # 1. "Find undocumented tables" / "tables with no description" -> find undocumented only
+        if any(phrase in task_lower for phrase in [
+            "undocumented",
+            "no description",
+            "missing description",
+            "empty description",
+            "tables without description",
+            "tables missing description"
+        ]):
+            logger.info("[CatalogScout] Detected undocumented tables task → calling _find_undocumented_tables")
+            return await self._find_undocumented_tables(task, mcp_client)
+        
+        # 2. "List all tables" request -> dedicated flat list (NOT hierarchy)
+        if any(phrase in task_lower for phrase in [
+            "list all tables",
+            "list all the tables",
+            "list tables in the catalog",
+            "all tables in the catalog",
+            "show every table"
+        ]):
+            logger.info("[CatalogScout] Detected list-all-tables task → calling _list_all_tables")
+            return await self._list_all_tables(task, mcp_client)
         
         # 2. "List all databases" / "list databases" -> dedicated flat list (NOT hierarchy)
         if any(phrase in task_lower for phrase in [
