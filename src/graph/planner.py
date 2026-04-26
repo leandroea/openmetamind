@@ -225,10 +225,12 @@ IMPORTANT: When the user request mentions a specific table or entity (e.g., "the
 2. Use the format: "table_fqn: <full_fqn>" in required_inputs
 3. The discovering agent (catalog_scout) should produce output that the next agent can use
 
+IMPORTANT: For explanation/analysis tasks (e.g., "Explain nested columns in X", "Describe structure of X"), route to documentation_agent NOT quality_guardian. The documentation_agent has an explain mode that returns text explanations without actions.
+
 Example:
-- Task: "Document the big_data_table_with_nested_columns table"
-- Subtask: {{"subtask_id": "discover_table", "agent_id": "catalog_scout", "task_description": "Find the big_data_table_with_nested_columns table", "required_inputs": [], "produces_output": "table_fqn"}}
-- Then documentation_agent with "required_inputs": ["table_fqn"]
+- Task: "Explain the nested column structures in big_data_table_with_nested_columns"
+- Subtask: {{"subtask_id": "discover_nested_table", "agent_id": "catalog_scout", "task_description": "Find the big_data_table_with_nested_columns table", "required_inputs": [], "produces_output": "table_fqn"}}
+- Then documentation_agent with "required_inputs": ["table_fqn"], NOT quality_guardian
 
 Examples:
 - Task: "Find all tables missing descriptions" -> catalog_scout first, then documentation_agent
