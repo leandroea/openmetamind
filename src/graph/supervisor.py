@@ -221,7 +221,7 @@ class Supervisor:
                                 break
             
             # Special handling for table_list / all_table_fqns / all_tables - extract from finding.details
-            table_list_keys = ["table_list", "all_table_fqns", "all_tables"]
+            table_list_keys = ["table_list", "all_table_fqns", "all_tables", "list of table FQNs", "list of table Fqns"]
             if key in table_list_keys and key not in inputs and findings:
                 for finding in reversed(findings):
                     if hasattr(finding, 'details') and isinstance(finding.details, dict):
