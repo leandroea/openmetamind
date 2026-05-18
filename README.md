@@ -124,13 +124,10 @@ All agents use **native LangGraph MCP integration** via [`langchain-mcp-adapters
 #### 1. Orchestrator ([`src/agents/orchestrator.py`](src/agents/orchestrator.py:1))
 Main entry point that manages the agent execution workflow. Routes tasks to appropriate agents and synthesizes results.
 
-#### 2. Agent Base ([`src/agents/base.py`](src/agents/base.py:1))
-Abstract base class defining the agent interface. All agents inherit from this base class.
-
-#### 3. Agent Registry ([`src/agents/registry.py`](src/agents/registry.py:1))
+#### 2. Agent Registry ([`src/agents/registry.py`](src/agents/registry.py:1))
 Discovers and registers available agents. Provides agent lookup by capability.
 
-#### 4. Native MCP Client ([`src/mcp/native_client.py`](src/mcp/native_client.py:1))
+#### 3. Native MCP Client ([`src/mcp/native_client.py`](src/mcp/native_client.py:1))
 Provides native LangGraph MCP integration using `langchain-mcp-adapters` `MultiServerMCPClient`.
 
 ### Agent Execution Pattern
