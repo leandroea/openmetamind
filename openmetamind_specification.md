@@ -33,10 +33,7 @@
 User Input
      │
      ▼
-Orchestrator (src/orchestrator/orchestrator.py)
-     │
-     ▼
-Dispatcher (src/orchestrator/dispatcher.py)
+Orchestrator (src/agents/orchestrator.py)
      │
      ▼
 ┌─────────────────────────────────────────┐
@@ -60,16 +57,11 @@ OpenMetadata MCP Server
 
 ### 3.2 Component Descriptions
 
-#### Orchestrator (`src/orchestrator/orchestrator.py`)
+#### Orchestrator (`src/agents/orchestrator.py`)
 Main entry point that manages the agent execution workflow.
 - Routes tasks to appropriate agents based on task type
 - Coordinates multi-agent workflows
 - Synthesizes agent responses
-
-#### Dispatcher (`src/orchestrator/dispatcher.py`)
-Routes tasks to appropriate agents based on capabilities.
-- Task queue management
-- Execution ordering
 
 #### Agents (`src/agents/`)
 All agents inherit from `SwarmAgent` base class and use LangGraph's `create_agent` with native MCP tools.
@@ -208,10 +200,6 @@ openmetamind/
 │   │   ├── data_steward.py
 │   │   ├── quality_guardian.py
 │   │   └── documentation_agent.py
-│   ├── orchestrator/
-│   │   ├── __init__.py
-│   │   ├── orchestrator.py
-│   │   └── dispatcher.py
 │   ├── mcp/
 │   │   ├── __init__.py
 │   │   ├── client.py

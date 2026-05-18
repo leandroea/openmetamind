@@ -75,17 +75,9 @@ The [`NativeMCPClient`](src/mcp/native_client.py:1) class provides:
 - Dynamic tool discovery from MCP server
 - Streamable HTTP transport support
 
-### Legacy MCP Client
-
-The [`OpenMetadataMCPClient`](src/mcp/client.py:45) class provides:
-- Async context manager for proper resource management
-- Automatic retry with exponential backoff for transient errors
-- JSON-RPC 2.0 request/response handling
-- Error parsing and transformation
-
 ### Authentication
 
-Both MCP clients use JWT Bearer authentication:
+MCP uses JWT Bearer authentication:
 - `OPENMETADATA_MCP_URL`: MCP server endpoint URL
 - `OPENMETADATA_JWT_TOKEN`: JWT token for authentication
 
@@ -93,7 +85,7 @@ Both MCP clients use JWT Bearer authentication:
 
 ## System Architecture
 
-OpenMetaMind uses **LangGraph with native MCP integration** for multi-agent orchestration. The architecture follows a **supervisor/agent pattern** where a central orchestrator dispatches tasks to specialized agents.
+OpenMetaMind uses **LangGraph with native MCP integration** for multi-agent orchestration. The architecture follows a **agent-based pattern** where the orchestrator routes tasks to specialized agents.
 
 ### Core Architecture
 
@@ -101,10 +93,7 @@ OpenMetaMind uses **LangGraph with native MCP integration** for multi-agent orch
 User Input
      │
      ▼
-Orchestrator ([src/orchestrator/orchestrator.py](src/orchestrator/orchestrator.py:1))
-     │
-     ▼
-Dispatcher ([src/orchestrator/dispatcher.py](src/orchestrator/dispatcher.py:1))
+Orchestrator ([src/agents/orchestrator.py](src/agents/orchestrator.py:1))
      │
      ▼
 ┌─────────────────────────────────────────┐
@@ -132,19 +121,16 @@ All agents use **native LangGraph MCP integration** via [`langchain-mcp-adapters
 
 ### Core Components
 
-#### 1. Orchestrator ([`src/orchestrator/orchestrator.py`](src/orchestrator/orchestrator.py:1))
-Main entry point that manages the agent execution workflow. Coordinates task routing and result aggregation.
+#### 1. Orchestrator ([`src/agents/orchestrator.py`](src/agents/orchestrator.py:1))
+Main entry point that manages the agent execution workflow. Routes tasks to appropriate agents and synthesizes results.
 
-#### 2. Dispatcher ([`src/orchestrator/dispatcher.py`](src/orchestrator/dispatcher.py:1))
-Routes tasks to appropriate agents based on task type and agent capabilities. Manages task queue and execution order.
-
-#### 3. Agent Base ([`src/agents/base.py`](src/agents/base.py:1))
+#### 2. Agent Base ([`src/agents/base.py`](src/agents/base.py:1))
 Abstract base class defining the agent interface. All agents inherit from this base class.
 
-#### 4. Agent Registry ([`src/agents/registry.py`](src/agents/registry.py:1))
+#### 3. Agent Registry ([`src/agents/registry.py`](src/agents/registry.py:1))
 Discovers and registers available agents. Provides agent lookup by capability.
 
-#### 5. Native MCP Client ([`src/mcp/native_client.py`](src/mcp/native_client.py:1))
+#### 4. Native MCP Client ([`src/mcp/native_client.py`](src/mcp/native_client.py:1))
 Provides native LangGraph MCP integration using `langchain-mcp-adapters` `MultiServerMCPClient`.
 
 ### Agent Execution Pattern
@@ -350,13 +336,9 @@ openmetamind/
 │   │   ├── data_steward.py  # Governance agent
 │   │   ├── quality_guardian.py  # Quality analysis agent
 │   │   └── documentation_agent.py  # Documentation agent
-│   ├── orchestrator/    # LangGraph orchestration
-│   │   ├── __init__.py
-│   │   ├── orchestrator.py  # Main orchestrator class
-│   │   └── dispatcher.py  # Task dispatcher
 │   ├── mcp/             # OpenMetadata MCP client
 │   │   ├── __init__.py
-│   │   ├── client.py  # Legacy MCP client
+│   │   ├── client.py  # MCP client utilities
 │   │   └── native_client.py  # Native langchain-mcp-adapters integration
 │   ├── ui/              # User interfaces
 │   │   ├── __init__.py
