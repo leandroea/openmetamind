@@ -4,32 +4,23 @@ Agent Registry for the OpenMetaMind swarm.
 Implements a plugin system where agents self-register on import.
 """
 
-from dataclasses import dataclass
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List, Dict, Optional, Any
 import logging
 
-from .base import SwarmAgent, Capability
-from ..models.state import AgentFinding
+
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class AgentMatch:
-    """Represents an agent matched to a task with a confidence score."""
-    agent: SwarmAgent
-    confidence: float
-
-
 class AgentRegistry:
     """
-    Singleton registry for SwarmAgent implementations.
+    Singleton registry for agents.
     
     Agents self-register on import via the register() method.
     """
     
     _instance: Optional["AgentRegistry"] = None
-    _agents: Dict[str, SwarmAgent] = {}
+    _agents: Dict[str, Any] = {}
     
     def __new__(cls) -> "AgentRegistry":
         """Ensure only one instance exists (singleton pattern)."""
@@ -43,7 +34,7 @@ class AgentRegistry:
             self._agents = {}
             self._initialized = True
     
-    def register(self, agent: SwarmAgent) -> None:
+    def register(self, agent: Any) -> None:
         """
         Register an agent in the registry.
         
@@ -57,11 +48,11 @@ class AgentRegistry:
         self._agents[agent.agent_id] = agent
         logger.info(f"Registered agent: {agent.agent_id} ({agent.display_name})")
     
-    def get_agent(self, agent_id: str) -> Optional[SwarmAgent]:
+    def get_agent(self, agent_id: str) -> Optional[Any]:
         """Get an agent by its ID."""
         return self._agents.get(agent_id)
     
-    def list_agents(self) -> List[SwarmAgent]:
+    def list_agents(self) -> list:
         """List all registered agents."""
         return list(self._agents.values())
     
@@ -80,10 +71,16 @@ class AgentRegistry:
         for agent in self._agents.values():
             capabilities = []
             for cap in agent.capabilities:
-                capabilities.append({
-                    "name": cap.name,
-                    "description": cap.description
-                })
+                if isinstance(cap, dict):
+                    capabilities.append({
+                        "name": cap.get("name", ""),
+                        "description": cap.get("description", "")
+                    })
+                else:
+                    capabilities.append({
+                        "name": getattr(cap, "name", ""),
+                        "description": getattr(cap, "description", "")
+                    })
             result.append({
                 "agent_id": agent.agent_id,
                 "display_name": agent.display_name,
@@ -117,67 +114,6 @@ class AgentRegistry:
         lines.append("💡 Feel free to assign me a task! I can help you explore your data, "
                       "manage governance, check quality, and more.")
         
-        return "\n".join(lines)
-    
-    def find_agents_for_task(
-        self, 
-        task: str, 
-        min_confidence: float = 0.6
-    ) -> List[AgentMatch]:
-        """
-        Find agents that can handle a given task.
-        
-        Uses simple keyword matching for now. LLM-based routing comes later.
-        
-        Args:
-            task: The task description to match against
-            min_confidence: Minimum confidence score to include agent (default: 0.6)
-            
-        Returns:
-            List of AgentMatch objects sorted by confidence (highest first)
-        """
-        matches = []
-        task_lower = task.lower()
-        
-        for agent in self._agents.values():
-            # Use the agent's can_handle method to get confidence score
-            # Note: This is async, but we're calling it synchronously for simplicity
-            # In a real implementation, this would be handled async by the planner
-            try:
-                import asyncio
-                # Try to get the running loop, if none, create a new one
-                try:
-                    loop = asyncio.get_running_loop()
-                    # If we're already in an async context, we need to schedule the coroutine
-                    # For simplicity in this scaffold, we'll run it in a new thread
-                    # In production, the planner would handle this properly
-                    confidence = 0.0  # Placeholder - would be awaited properly
-                except RuntimeError:
-                    # No running loop, we can create a new one
-                    confidence = asyncio.run(agent.can_handle(task))
-            except Exception as e:
-                logger.warning(f"Error checking if agent {agent.agent_id} can handle task: {e}")
-                confidence = 0.0
-            
-            if confidence >= min_confidence:
-                matches.append(AgentMatch(agent=agent, confidence=confidence))
-        
-        # Sort by confidence descending
-        matches.sort(key=lambda x: x.confidence, reverse=True)
-        return matches
-    
-    def format_capabilities(self) -> str:
-        """
-        Format all agent capabilities for use in Coordinator prompts.
-        
-        Returns a string describing what each agent can do.
-        """
-        lines = ["Available agents and their capabilities:"]
-        for agent in self._agents.values():
-            lines.append(f"- {agent.display_name} ({agent.agent_id}): {agent.description}")
-            if agent.capabilities:
-                cap_names = [cap.name for cap in agent.capabilities]
-                lines.append(f"  Capabilities: {', '.join(cap_names)}")
         return "\n".join(lines)
 
 

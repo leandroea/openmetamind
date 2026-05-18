@@ -2,19 +2,20 @@
 Agents module for OpenMetaMind.
 """
 
-from .base import SwarmAgent, Capability
-from .registry import AgentRegistry, get_agent_registry, AgentMatch
-from . import catalog_scout, data_steward, quality_guardian, example_agent, documentation_agent  # Import to trigger agent registration
+
+from .registry import AgentRegistry, get_agent_registry
+from . import catalog_scout, data_steward, quality_guardian, documentation_agent  # Import to trigger agent registration
 
 __all__ = [
-    "SwarmAgent",
-    "Capability",
     "AgentRegistry",
     "get_agent_registry",
-    "AgentMatch",
     "catalog_scout",
     "data_steward",
     "quality_guardian",
-    "example_agent",
     "documentation_agent",
 ]
+
+# Import Orchestrator at module level for convenience
+from .orchestrator import Orchestrator
+
+__all__.extend(["Orchestrator"])

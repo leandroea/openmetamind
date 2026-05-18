@@ -104,6 +104,33 @@ class Settings(BaseSettings):
             "temperature": 0.1,
             "max_tokens": 1000
         }
+    
+    def create_llm_client(self, temperature: float = 0.1, max_tokens: int = 1000, reasoning_split: bool = False):
+        """
+        Create a configured ChatOpenAI client for MiniMax LLM.
+        
+        Args:
+            temperature: Sampling temperature (default 0.1)
+            max_tokens: Maximum tokens to generate (default 1000)
+            reasoning_split: Enable thinking token separation (default False for API compatibility)
+            
+        Returns:
+            Configured ChatOpenAI instance
+        """
+        from langchain_openai import ChatOpenAI
+        
+        extra_params = {}
+        if reasoning_split:
+            extra_params["extra_body"] = {"reasoning_split": True}
+        
+        return ChatOpenAI(
+            base_url=self.minimax_base_url,
+            api_key=self.minimax_api_key,
+            model=self.llm_model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **extra_params
+        )
 
 
 # Global settings instance

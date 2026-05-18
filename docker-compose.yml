@@ -1,21 +1,19 @@
 version: '3.8'
 
 services:
-  # OpenMetaMind FastAPI Backend
-  app:
+  # OpenMetaMind Streamlit UI (runs swarm directly)
+  streamlit:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.streamlit
     ports:
-      - "8000:8000"
+      - "8501:8501"
     environment:
       - ENV_FILE=/app/.env
     env_file:
       - .env
     volumes:
       - ./.env:/app/.env:ro
-    depends_on:
-      - postgres
     networks:
       - openmetamind-network
     restart: unless-stopped
@@ -31,21 +29,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - openmetamind-network
-    restart: unless-stopped
-
-  # Optional: Streamlit UI
-  streamlit:
-    build:
-      context: .
-      dockerfile: Dockerfile.streamlit
-    ports:
-      - "8501:8501"
-    environment:
-      - API_BASE_URL=http://app:8000
-    depends_on:
-      - app
     networks:
       - openmetamind-network
     restart: unless-stopped

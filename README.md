@@ -32,12 +32,12 @@ OpenMetaMind rejects all of these. It provides:
 |-------|------------|
 | **Language** | Python 3.10+ |
 | **Multi-Agent Framework** | LangGraph |
+| **MCP Integration** | langchain-mcp-adapters |
 | **LLM Integration** | LangChain + MiniMax (OpenAI-compatible API) |
 | **Data Validation** | Pydantic v2 |
 | **Configuration** | Pydantic Settings + python-dotenv |
 | **User Interface** | Streamlit |
 | **Messaging (Optional)** | Slack Bolt |
-| **Database** | SQLite (aiosqlite) |
 | **Testing** | pytest, pytest-asyncio |
 | **Code Quality** | Black, Ruff, MyPy |
 
@@ -45,7 +45,7 @@ OpenMetaMind rejects all of these. It provides:
 
 ## OpenMetadata MCP Integration
 
-OpenMetaMind connects to OpenMetadata via its **MCP (Model Context Protocol) server**, which provides JSON-RPC 2.0 over HTTP with JWT Bearer authentication. All agents interact with OpenMetadata through the [`OpenMetadataMCPClient`](src/mcp/client.py:45) class.
+OpenMetaMind connects to OpenMetadata via its **MCP (Model Context Protocol) server**. Agents use **native LangGraph MCP integration** via [`langchain-mcp-adapters`](src/mcp/native_client.py:1) for seamless tool discovery and execution.
 
 ### MCP Server Tools (v1.13.x / AI SDK)
 
@@ -65,15 +65,17 @@ The following tools are available via the OpenMetadata MCP server:
 | `create_test_case` | Create a data quality test case for an entity | Quality |
 | `root_cause_analysis` | Analyze root causes of data quality failures | Quality |
 
-**Note:** `patch_entity` with JSONPatch operations handles description updates, tag additions/removals, and owner management. Methods like `add_tags`, `update_description`, and `add_owner` are client-side wrappers around `patch_entity`.
+**Note:** `patch_entity` with JSONPatch operations handles description updates, tag additions/removals, and owner management.
 
-### Authentication
+### Native MCP Client
 
-The MCP client uses JWT Bearer authentication:
-- `OPENMETADATA_MCP_URL`: MCP server endpoint URL
-- `OPENMETADATA_JWT_TOKEN`: JWT token for authentication
+The [`NativeMCPClient`](src/mcp/native_client.py:1) class provides:
+- Native LangGraph integration via `langchain-mcp-adapters`
+- `MultiServerMCPClient` for async tool loading
+- Dynamic tool discovery from MCP server
+- Streamable HTTP transport support
 
-### Client Implementation
+### Legacy MCP Client
 
 The [`OpenMetadataMCPClient`](src/mcp/client.py:45) class provides:
 - Async context manager for proper resource management
@@ -81,111 +83,85 @@ The [`OpenMetadataMCPClient`](src/mcp/client.py:45) class provides:
 - JSON-RPC 2.0 request/response handling
 - Error parsing and transformation
 
+### Authentication
+
+Both MCP clients use JWT Bearer authentication:
+- `OPENMETADATA_MCP_URL`: MCP server endpoint URL
+- `OPENMETADATA_JWT_TOKEN`: JWT token for authentication
+
 ---
 
 ## System Architecture
 
-OpenMetaMind uses the **Supervisor/Manager pattern** for multi-agent orchestration. The Coordinator is the entry point that classifies user intent and decides whether to answer directly, delegate to the swarm, or ask for clarification. When delegation is needed, the flow proceeds through a sequential pipeline where tasks are executed one by one and results are synthesized before moving to the next phase.
+OpenMetaMind uses **LangGraph with native MCP integration** for multi-agent orchestration. The architecture follows a **supervisor/agent pattern** where a central orchestrator dispatches tasks to specialized agents.
 
-The complete LangGraph workflow follows this sequence:
-
-```
-Coordinator (entry point)
-    │
-    ├─► END (answer directly / clarify / self-identity / team roster)
-    │
-    └─► Planner
-             │
-             ▼
-        Dispatcher
-             │
-             ▼
-        Supervisor ◄──┐ (loops while tasks remain)
-             │        │
-             ▼        │
-    Integrity Critic  │ (after all tasks complete)
-             │
-       ┌─────┼─────┐
-       ▼     ▼     ▼
-   END   Planner  Action Executor
-  (human    (retry)    │
-  approval)            ▼
-                   END (execution complete)
-```
-
-### Node Flow Details
-
-| From | To | Condition |
-|------|-----|-----------|
-| Coordinator | Planner | `next = "planner"` (delegate intent) |
-| Coordinator | END | `next = "end"` (answer/clarify/self-identity/roster) |
-| Planner | Dispatcher | Always (after creating execution plan) |
-| Dispatcher | Supervisor | Always (initializes task queue) |
-| Supervisor | Supervisor | `next = "supervisor"` (more tasks pending) |
-| Supervisor | Integrity Critic | `next = "integrity_critic"` (all tasks done) |
-| Integrity Critic | Action Executor | Auto-approve (high confidence) |
-| Integrity Critic | Planner | Retry (low confidence, needs replanning) |
-| Integrity Critic | END | Human gate (requires user approval) |
-| Action Executor | END | Always (after executing proposed actions) |
-
-### Supervisor Loop Pattern
-
-The Supervisor iterates through tasks **sequentially** (not in parallel). After each task completes, the Supervisor updates the state and either loops back for the next task or moves to the Integrity Critic.
+### Core Architecture
 
 ```
-Supervisor called with pending_tasks = [TaskA, TaskB, TaskC]
-
-1. Execute TaskA → Agent returns FindingA
-2. Update state: findings = [FindingA], pending_tasks = [TaskB, TaskC]
-3. Return "next": "supervisor" → Loop back
-
-4. Execute TaskB → Agent returns FindingB
-5. Update state: findings = [FindingA, FindingB], pending_tasks = [TaskC]
-6. Return "next": "supervisor" → Loop back
-
-7. Execute TaskC → Agent returns FindingC
-8. Update state: findings = [FindingA, FindingB, FindingC], pending_tasks = []
-9. Return "next": "integrity_critic" → Move to critic
+User Input
+     │
+     ▼
+Orchestrator ([src/orchestrator/orchestrator.py](src/orchestrator/orchestrator.py:1))
+     │
+     ▼
+Dispatcher ([src/orchestrator/dispatcher.py](src/orchestrator/dispatcher.py:1))
+     │
+     ▼
+┌─────────────────────────────────────────┐
+│         Specialized Agents              │
+│  ┌─────────────┐  ┌─────────────────┐  │
+│  │ Catalog     │  │ Data Steward    │  │
+│  │ Scout       │  │                 │  │
+│  └─────────────┘  └─────────────────┘  │
+│  ┌─────────────┐  ┌─────────────────┐  │
+│  │ Quality     │  │ Documentation   │  │
+│  │ Guardian    │  │ Agent           │  │
+│  └─────────────┘  └─────────────────┘  │
+└─────────────────────────────────────────┘
+     │
+     ▼
+Result/Response to User
 ```
 
-This sequential approach eliminates concurrent state update conflicts and makes debugging straightforward.
+### MCP Integration
+
+All agents use **native LangGraph MCP integration** via [`langchain-mcp-adapters`](src/mcp/native_client.py:1). This provides:
+- Dynamic tool discovery from OpenMetadata MCP server
+- Async tool execution with proper streaming
+- Type-safe tool call handling
 
 ### Core Components
 
-#### 1. Coordinator ([`src/graph/coordinator.py`](src/graph/coordinator.py:1))
-The user's single point of contact. Maintains conversation memory and decides whether to:
-- Answer directly from memory (follow-up questions)
-- Delegate lightweight tasks (single agent, no critic)
-- Delegate full swarm (planner + multi-agent + critic)
-- Ask clarifying questions
+#### 1. Orchestrator ([`src/orchestrator/orchestrator.py`](src/orchestrator/orchestrator.py:1))
+Main entry point that manages the agent execution workflow. Coordinates task routing and result aggregation.
 
-#### 2. Planner ([`src/graph/planner.py`](src/graph/planner.py:1))
-The "project manager" of the swarm. Decomposes tasks, queries the Agent Registry for suitable agents, and generates an execution DAG with task dependencies.
+#### 2. Dispatcher ([`src/orchestrator/dispatcher.py`](src/orchestrator/dispatcher.py:1))
+Routes tasks to appropriate agents based on task type and agent capabilities. Manages task queue and execution order.
 
-#### 3. Dispatcher ([`src/graph/dispatcher.py`](src/graph/dispatcher.py:1))
-Initializes the task queue from the Planner's execution plan and sets up execution order for the Supervisor.
+#### 3. Agent Base ([`src/agents/base.py`](src/agents/base.py:1))
+Abstract base class defining the agent interface. All agents inherit from this base class.
 
-#### 4. Supervisor ([`src/graph/supervisor.py`](src/graph/supervisor.py:1))
-The central orchestrator that iterates through tasks sequentially. After each agent completes, synthesizes results and decides whether to continue the loop or move to the Integrity Critic.
+#### 4. Agent Registry ([`src/agents/registry.py`](src/agents/registry.py:1))
+Discovers and registers available agents. Provides agent lookup by capability.
 
-#### 5. Integrity Critic ([`src/graph/integrity_critic.py`](src/graph/integrity_critic.py:1))
-Not just a validator — a true critic that reads the blackboard, detects contradictions, assigns final confidence, and decides routing:
-- **AUTO_APPROVE**: High confidence, proceed directly to Action Executor
-- **ESCALATE_TO_HUMAN**: Low confidence or conflicts, requires user approval
-- **REJECT_AND_RETRY**: Invalid findings, send back to agents
+#### 5. Native MCP Client ([`src/mcp/native_client.py`](src/mcp/native_client.py:1))
+Provides native LangGraph MCP integration using `langchain-mcp-adapters` `MultiServerMCPClient`.
 
-#### 6. Action Executor ([`src/graph/action_executor.py`](src/graph/action_executor.py:1))
-Performs actual MCP write operations. The only component with write permissions. Supports batch execution with rollback on failure and idempotency checks.
+### Agent Execution Pattern
 
-### Blackboard (Shared State)
+Each agent uses LangGraph's `create_agent` with native MCP tools:
 
-The blackboard is an **append-only event log**, not a mutable shared dictionary. Every agent writes findings; no agent overwrites another. This ensures complete auditability.
+1. Agent receives task
+2. MCP tools are loaded via `get_mcp_tools_async()`
+3. LangGraph agent is created with system prompt
+4. Agent executes using ReAct pattern with MCP tools
+5. Results are streamed and accumulated
 
 ---
 
 ## Available Agents
 
-OpenMetaMind ships with **four specialized governance agents** plus an example agent for reference:
+OpenMetaMind ships with **four specialized governance agents**:
 
 ### 1. Catalog Scout ([`src/agents/catalog_scout.py`](src/agents/catalog_scout.py:1))
 **Emoji**: 🔍 | **ID**: `catalog_scout`
@@ -194,9 +170,10 @@ The discovery specialist. Maps the OpenMetadata landscape by finding entities an
 
 | Capability | Description |
 |------------|-------------|
-| `list_entities` | Lists entities of a given type (tables, databases, etc.) from OpenMetadata |
-| `search_catalog` | Searches for entities matching a query string |
-| `get_entity_details` | Gets detailed information about a specific entity |
+| `search_metadata` | Search for entities across the OpenMetadata catalog |
+| `get_entity_details` | Get detailed information about specific entities including columns |
+| `get_entity_lineage` | Retrieve upstream and downstream lineage |
+| `semantic_search` | AI-powered semantic search (when vector embeddings enabled) |
 
 **Use cases**: Finding all tables in a database, discovering entities with specific tags, understanding catalog structure.
 
@@ -205,7 +182,7 @@ The discovery specialist. Maps the OpenMetadata landscape by finding entities an
 ### 2. Data Steward ([`src/agents/data_steward.py`](src/agents/data_steward.py:1))
 **Emoji**: 🛡️ | **ID**: `data_steward`
 
-The classification specialist. Handles PII detection, tag assignment, and ownership management. Uses LangChain with MiniMax LLM for intelligent analysis.
+The classification specialist. Handles PII detection, tag assignment, and ownership management. Uses LangGraph with native MCP tools and MiniMax LLM for intelligent analysis.
 
 | Capability | Description |
 |------------|-------------|
@@ -218,17 +195,17 @@ The classification specialist. Handles PII detection, tag assignment, and owners
 ---
 
 ### 3. Quality Guardian ([`src/agents/quality_guardian.py`](src/agents/quality_guardian.py:1))
-**Emoji**: 🔬 | **ID**: `quality_guardian`
+**Emoji**: ⚖️ | **ID**: `quality_guardian`
 
 The quality analyst. Profiles tables, detects anomalies, and validates SLAs.
 
 | Capability | Description |
 |------------|-------------|
-| `profile_table` | Gathers quality metrics (null counts, uniqueness, distribution) for a table |
-| `detect_anomalies` | Detects anomalies in data distribution compared to baseline profiles |
-| `validate_sla` | Checks if table quality meets defined service level agreements |
+| `table_profiling` | Profiles tables with statistical metrics |
+| `anomaly_detection` | Detects anomalies in data distribution |
+| `quality_assessment` | Assesses overall data quality score |
 
-**Use cases**: Finding tables with stale profiles, detecting data quality regressions, SLA compliance auditing.
+**Use cases**: Finding tables with quality issues, detecting data quality regressions, SLA compliance auditing.
 
 ---
 
@@ -242,16 +219,8 @@ The metadata specialist. Finds undocumented entities and generates business-frie
 | `find_undocumented` | Identifies tables and columns missing descriptions |
 | `generate_description` | Uses LLM to generate business-friendly descriptions from context |
 | `document_entities` | Full pipeline: finds undocumented entities and proposes descriptions |
-| `explain_structure` | Read-only mode that explains table structure without proposing changes |
 
 **Use cases**: Auditing documentation completeness, bulk-adding missing descriptions, explaining table structure to users.
-
----
-
-### 5. Example Agent ([`src/agents/example_agent.py`](src/agents/example_agent.py:1))
-**Emoji**: 📚 | **ID**: `example_agent`
-
-A reference implementation demonstrating the SwarmAgent interface. Used as a template for building new agents.
 
 ---
 
@@ -266,13 +235,12 @@ New agents are **drop-in plugins**. To add an agent:
    - `display_name`: Human-readable name
    - `description`: What the agent does
    - `avatar_emoji`: UI representation
-   - `capabilities`: List of `Capability` objects
-   - `can_handle()`: Lightweight task suitability check
-   - `execute()`: Core logic returning `AgentFinding`
+   - `capabilities`: List of capability dictionaries
+   - `execute()`: Async method returning task result
 
 4. Import the agent in [`src/agents/__init__.py`](src/agents/__init__.py:1) to register it
 
-The Planner automatically discovers agents via the Agent Registry.
+The orchestrator automatically discovers agents via the Agent Registry.
 
 ---
 
@@ -338,9 +306,9 @@ The Streamlit interface provides:
 | **Swarm over Singleton** | Multiple independent agents with distinct roles |
 | **Visible Cognition** | Every agent's reasoning displayed in real-time |
 | **Dynamic Composition** | Agents self-assemble per task from the registry |
-| **Extensibility by Addition** | New agents are plugins, not graph rewrites |
+| **Extensibility by Addition** | New agents are plugins, not core rewrites |
 | **Human Sovereignty** | AI proposes, human approves all actions |
-| **Native Protocol** | All operations via OpenMetadata MCP server |
+| **Native Protocol** | All operations via OpenMetadata MCP server using langchain-mcp-adapters |
 
 ---
 
@@ -355,7 +323,7 @@ The following enhancements are planned for future releases:
 - **Lineage Tracker Agent**: Track and visualize data lineage
 
 ### Medium Priority
-- **Persistent Audit Trail**: Database-backed audit log with search/filter
+- **Persistent Audit Trail**: Enhanced audit logging with search/filter
 - **Multi-language Support**: Interface localization for non-English users
 - **Webhook Integration**: Notify external systems on action completion
 - **Scheduled Governance Audits**: Automated periodic governance checks
@@ -374,30 +342,37 @@ The following enhancements are planned for future releases:
 openmetamind/
 ├── src/
 │   ├── agents/          # SwarmAgent implementations (plugins)
+│   │   ├── __init__.py  # Agent registry and initialization
 │   │   ├── base.py      # SwarmAgent abstract base class
 │   │   ├── registry.py  # Agent discovery and registration
-│   │   ├── catalog_scout.py
-│   │   ├── data_steward.py
-│   │   ├── quality_guardian.py
-│   │   ├── documentation_agent.py
-│   │   └── example_agent.py
-│   ├── graph/           # LangGraph workflow definitions
-│   │   ├── coordinator.py
-│   │   ├── planner.py
-│   │   ├── dispatcher.py
-│   │   ├── supervisor.py
-│   │   ├── integrity_critic.py
-│   │   ├── action_executor.py
-│   │   └── swarm_graph.py
+│   │   ├── orchestrator.py  # Main orchestrator for agent execution
+│   │   ├── catalog_scout.py  # Discovery agent
+│   │   ├── data_steward.py  # Governance agent
+│   │   ├── quality_guardian.py  # Quality analysis agent
+│   │   └── documentation_agent.py  # Documentation agent
+│   ├── orchestrator/    # LangGraph orchestration
+│   │   ├── __init__.py
+│   │   ├── orchestrator.py  # Main orchestrator class
+│   │   └── dispatcher.py  # Task dispatcher
 │   ├── mcp/             # OpenMetadata MCP client
-│   │   └── client.py
-│   ├── models/          # Pydantic models
-│   │   └── state.py
+│   │   ├── __init__.py
+│   │   ├── client.py  # Legacy MCP client
+│   │   └── native_client.py  # Native langchain-mcp-adapters integration
 │   ├── ui/              # User interfaces
-│   │   ├── streamlit_app.py
-│   │   ├── swarm_runner.py
-│   │   └── slack_bot.py
+│   │   ├── __init__.py
+│   │   ├── streamlit_app.py  # Streamlit web interface
+│   │   ├── swarm_runner.py  # CLI swarm runner
+│   │   └── slack_bot.py  # Slack integration
 │   └── config/          # Configuration management
+│       ├── __init__.py
+│       ├── settings.py  # Pydantic settings
+│       └── logging.py  # Logging configuration
+├── tests/               # Unit and integration tests
+├── openmetamind_specification.md  # Detailed technical specification
+├── pyproject.toml
+├── requirements.txt
+└── README.md
+```
 │       ├── settings.py
 │       └── logging.py
 ├── tests/               # Unit and integration tests

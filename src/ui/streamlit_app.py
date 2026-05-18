@@ -187,10 +187,8 @@ def get_agents() -> List[Dict[str, Any]]:
             "avatar_emoji": agent.avatar_emoji,
             "capabilities": [
                 {
-                    "name": cap.name,
-                    "description": cap.description,
-                    "input_schema": cap.input_schema,
-                    "output_schema": cap.output_schema
+                    "name": cap.get("name") if isinstance(cap, dict) else getattr(cap, "name", ""),
+                    "description": cap.get("description") if isinstance(cap, dict) else getattr(cap, "description", ""),
                 }
                 for cap in agent.capabilities
             ]

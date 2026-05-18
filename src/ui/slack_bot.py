@@ -389,7 +389,7 @@ class OpenMetaMindSlackBot:
                     new_findings = findings[last_findings_count:]
                     for finding in new_findings:
                         agent_id = finding.get("agent_id", "unknown")
-                        summary = finding.get("summary", "Task completed")
+                        summary = finding.get("summary", "")
                         confidence = finding.get("confidence", 0.0)
                         
                         emoji = "✅" if confidence >= 0.7 else "⚠️"
@@ -404,7 +404,7 @@ class OpenMetaMindSlackBot:
                 if len(conflicts) > last_conflicts_count:
                     new_conflicts = conflicts[last_conflicts_count:]
                     for conflict in new_conflicts:
-                        description = conflict.get("description", "Conflict detected")
+                        description = conflict.get("description", "")
                         severity = conflict.get("severity", "warning")
                         
                         emoji = "🚨" if severity == "critical" else "⚠️"
@@ -420,8 +420,9 @@ class OpenMetaMindSlackBot:
                     if agent_id in last_agent_statuses:
                         if last_agent_statuses[agent_id] != status_val:
                             if status_val == "completed":
+                                response_text = agent_statuses.get(f"{agent_id}_response", "Response received")
                                 await client.chat_postMessage(
-                                    text=f"✅ *{agent_id}*: Task completed",
+                                    text=f"✅ *{agent_id}*: {response_text}",
                                     channel=channel_id,
                                     thread_ts=thread_ts
                                 )

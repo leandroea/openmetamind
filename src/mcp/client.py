@@ -14,8 +14,6 @@ from urllib.parse import urljoin
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from .models import Entity, TableProfile, ColumnProfile, UsageStats
-
 logger = logging.getLogger(__name__)
 
 

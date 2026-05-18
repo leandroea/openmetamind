@@ -1,333 +1,148 @@
 """
-Quality Guardian Agent - Analyzes data quality and detects anomalies.
+Quality Guardian Agent - LangGraph Agent for Data Quality Analysis.
+
+This module provides an agent that uses LangGraph's create_agent
+framework with native MCP tools from langchain-mcp-adapters.
 """
 
-import asyncio
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 
-from .base import SwarmAgent, Capability
-from ..models.state import AgentFinding, ProposedAction, ActionType
-from ..mcp.client import get_mcp_client, OpenMetadataMCPClient
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain.agents import create_agent
+
+from ..config import get_settings
+from ..mcp.native_client import get_mcp_tools_async
 
 logger = logging.getLogger(__name__)
 
 
-class QualityGuardian(SwarmAgent):
-    """Profiles tables, detects anomalies, and validates SLAs."""
-    
-    agent_id = "quality_guardian"
-    display_name = "Quality Guardian"
-    description = "Profiles tables, detects anomalies, and validates SLAs"
-    avatar_emoji = "🔬"
-    
-    capabilities = [
-        Capability(
-            name="profile_table",
-            description="Profiles a table to gather quality metrics",
-            input_schema={"table_fqn": "string"},
-            output_schema={"profile": "TableProfile", "quality_score": "float"}
-        ),
-        Capability(
-            name="detect_anomalies",
-            description="Detects anomalies in data distribution and quality",
-            input_schema={"table_fqn": "string", "baseline_profile": "dict"},
-            output_schema={"anomalies": "list[Anomaly]", "severity": "string"}
-        ),
-        Capability(
-            name="validate_sla",
-            description="Validates data quality against service level agreements",
-            input_schema={"table_fqn": "string", "sla_requirements": "dict"},
-            output_schema={"compliant": "boolean", "violations": "list[string]"}
-        )
-    ]
-    
-    async def can_handle(self, task_description: str) -> float:
-        """
-        Determine if this agent can handle the task based on keywords.
-        """
-        task_lower = task_description.lower()
-        quality_keywords = [
-            "quality", "profile", "profiling", "anomaly", "anomalies", 
-            "null", "empty", "duplicate", "stale", "fresh", "monitor",
-            "sla", "service level", "metric", "metrics", "score", "health"
+# =============================================================================
+# QUALITY GUARDIAN AGENT CLASS
+# =============================================================================
+
+class QualityGuardian:
+    """Quality Guardian Agent using LangGraph with native MCP tools."""
+
+    SYSTEM_PROMPT = """You are the Quality Guardian, an expert at data quality analysis and validation.
+
+You have access to OpenMetadata MCP tools for:
+- Getting entity details (columns, descriptions, metadata)
+- Getting table profiles (row counts, statistics)
+- Performing root cause analysis
+- Detecting anomalies in data
+
+Key responsibilities:
+1. **Table Profiling**: Get statistical profiles of tables (row counts, column stats)
+2. **Anomaly Detection**: Identify unusual patterns, missing documentation, potential PII
+3. **Quality Assessment**: Calculate overall quality scores and SLA compliance
+4. **Root Cause Analysis**: Trace upstream issues when data quality problems occur
+
+Use the MCP tools to gather information and provide quality assessments. Analyze columns for:
+- Missing descriptions
+- Potential PII (columns named 'ssn', 'password', 'credit_card', etc.)
+- Data type inconsistencies
+- Missing constraints or keys
+
+Provide actionable recommendations for improving data quality.
+"""
+
+    @property
+    def agent_id(self) -> str:
+        return "quality_guardian"
+
+    @property
+    def display_name(self) -> str:
+        return "Quality Guardian"
+
+    @property
+    def description(self) -> str:
+        return "Analyzes data quality, detects anomalies, and validates SLAs"
+
+    @property
+    def avatar_emoji(self) -> str:
+        return "⚖️"
+
+    @property
+    def capabilities(self) -> list:
+        return [
+            {
+                "name": "table_profiling",
+                "description": "Profiles tables with statistical metrics"
+            },
+            {
+                "name": "anomaly_detection",
+                "description": "Detects anomalies in data distribution"
+            },
+            {
+                "name": "quality_assessment",
+                "description": "Assesses overall data quality score"
+            }
         ]
-        
-        score = 0.0
-        for keyword in quality_keywords:
-            if keyword in task_lower:
-                score += 0.15
-        
-        # Cap the score at 1.0
-        return min(score, 1.0)
-    
+
+    def __init__(self):
+        """Initialize the Quality Guardian agent with native MCP tools."""
+        settings = get_settings()
+        self.llm = settings.create_llm_client(temperature=0.1, max_tokens=500)
+
+        # Agent loaded lazily on first execute
+        self._agent = None
+
+    async def _get_agent(self):
+        """Get or create the agent with native MCP tools."""
+        if self._agent is None:
+            tools = await get_mcp_tools_async()
+            logger.info(f"[QualityGuardian] Loaded {len(tools)} MCP tools")
+            self._agent = create_agent(self.llm, tools, system_prompt=self.SYSTEM_PROMPT, debug=False)
+        return self._agent
+
     async def execute(
-        self, 
-        task: str, 
-        inputs: Dict[str, Any], 
+        self,
+        task: str,
+        inputs: Dict[str, Any],
         mcp_client: Any = None
-    ) -> AgentFinding:
+    ) -> str:
         """
-        Execute the quality guardian's analysis logic.
+        Execute the quality guardian agent on a task.
         
-        Args:
-            task: The specific task description for this agent
-            inputs: Dictionary of input data from the blackboard
-            mcp_client: MCP client for interacting with OpenMetadata
-            
         Returns:
-            AgentFinding containing quality metrics and proposed actions
+            A string response with the results
         """
         logger.info(f"[QualityGuardian] Executing task: {task}")
         
-        # Get MCP client if not provided
-        if mcp_client is None:
-            mcp_client = get_mcp_client()
-        
-        # Determine what table to work on from inputs or task
-        table_fqn = None
-        if inputs and "table_fqn" in inputs:
-            table_fqn = inputs["table_fqn"]
-        elif inputs and "entity_fqn" in inputs:
-            table_fqn = inputs["entity_fqn"]
-        
-        # Extract table FQN from task if not in inputs
-        if not table_fqn:
-            import re
-            # Look for patterns like "table_name", "table X", or FQN patterns
-            fqn_match = re.search(r"(?:table\s+['\"]?)?([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+){2,})", task, re.IGNORECASE)
-            if fqn_match:
-                table_fqn = fqn_match.group(1)
-            else:
-                # Try simple table name - look for snake_case or camelCase identifiers (min 5 chars)
-                simple_match = re.search(r"([a-zA-Z0-9_]{5,})", task)
-                if simple_match:
-                    table_fqn = simple_match.group(1)
-        
-        # If we still don't have a table, we can't do much
-        if not table_fqn:
-            finding = AgentFinding(
-                agent_id=self.agent_id,
-                subtask_id="quality_analysis",
-                task_description=task,
-                finding_type="quality",
-                summary="No table specified for profiling",
-                details={"error": "No table FQN provided in task or inputs"},
-                confidence=1.0,
-                proposed_actions=[],
-                mcp_tool_calls=[],
-                llm_reasoning="Cannot perform quality analysis without a target table. Returning empty actions."
-            )
-            return finding
-        
         try:
-            # Use the MCP client to get entity details (profile-like info from available tool)
-            async with mcp_client as client:
-                entity_details = await client.get_entity_details(
-                    entity_type="table",
-                    fqn=table_fqn
-                )
+            agent = await self._get_agent()
+            
+            input_data = {"messages": [{"role": "user", "content": task}]}
+            
+            result_messages = []
+            async for chunk in agent.astream(input_data, stream_mode="messages"):
+                result_messages.append(chunk)
+
+            # Accumulate content from all AIMessage chunks
+            full_response = ""
+            for chunk in result_messages:
+                if isinstance(chunk, tuple):
+                    msg = chunk[0]
+                else:
+                    msg = chunk
                 
-                # Calculate quality metrics from entity details
-                quality_metrics = self._calculate_quality_metrics_from_entity(entity_details)
-                
-                # Detect anomalies based on column information
-                anomalies = self._detect_anomalies_from_columns(entity_details, table_fqn)
-                
-                # Generate proposed actions based on findings
-                proposed_actions = []
-                
-                # If quality score is low, suggest actions
-                if quality_metrics["quality_score"] < 0.8:
-                    # Suggest adding a description about quality issues
-                    action = ProposedAction(
-                        action_type=ActionType.ADD_DESCRIPTION,
-                            target_entity=table_fqn,
-                        parameters={
-                            "description": f"Data quality score: {quality_metrics['quality_score']:.2f}. Review recommended."
-                        },
-                        confidence=0.8,
-                        proposed_by=self.agent_id
-                    )
-                    proposed_actions.append(action)
-                
-                # Create summary
-                quality_score = quality_metrics["quality_score"]
-                summary = f"Quality Guardian analyzed {table_fqn}: Quality score {quality_score:.2f}"
-                if anomalies:
-                    summary += f", detected {len(anomalies)} anomaly(ies)"
-                
-                # Create details
-                details = {
-                    "table_fqn": table_fqn,
-                    "entity_details": entity_details if isinstance(entity_details, dict) else {"raw": str(entity_details)},
-                    "quality_metrics": quality_metrics,
-                    "anomalies": anomalies,
-                    "quality_score": quality_score
-                }
-                
-                # Create finding
-                finding = AgentFinding(
-                    agent_id=self.agent_id,
-                    subtask_id="quality_analysis",
-                    task_description=task,
-                    finding_type="quality",
-                    target_entity=table_fqn,
-                    summary=summary,
-                    details=details,
-                    confidence=0.9,  # High confidence in quality metrics from MCP
-                    proposed_actions=proposed_actions,
-                    mcp_tool_calls=[],  # Would be populated by MCP client internally
-                    llm_reasoning=f"The Quality Guardian profiled table {table_fqn} and calculated quality metrics based on OpenMetadata data."
-                )
-                
-                return finding
-                
+                if hasattr(msg, 'content'):
+                    content = msg.content
+                    if isinstance(content, str):
+                        full_response += content
+                    elif isinstance(content, list):
+                        for item in content:
+                            if isinstance(item, str):
+                                full_response += item
+                            elif isinstance(item, dict) and 'text' in item:
+                                full_response += item['text']
+            
+            return full_response if full_response else None
+            
         except Exception as e:
-            logger.error(f"Quality Guardian failed: {str(e)}")
-            # Return a finding indicating failure
-            finding = AgentFinding(
-                agent_id=self.agent_id,
-                subtask_id="quality_analysis",
-                task_description=task,
-                finding_type="other",
-                summary=f"Quality Guardian failed: {str(e)}",
-                details={"error": str(e), "table_fqn": table_fqn},
-                confidence=0.0,
-                proposed_actions=[],
-                mcp_tool_calls=[],
-                llm_reasoning=f"An error occurred while performing quality analysis: {str(e)}"
-            )
-            return finding
-    
-    def _calculate_quality_metrics(self, table_profile: Any) -> Dict[str, Any]:
-        """
-        Calculate quality metrics from table profile.
-        
-        Args:
-            table_profile: TableProfile object or dict from MCP
-            
-        Returns:
-            Dictionary of quality metrics
-        """
-        # Extract metrics from table profile (could be dict or object)
-        # This is a simplified implementation - in reality, we'd have more detailed profile data
-        if isinstance(table_profile, dict):
-            row_count = table_profile.get('rowCount') or table_profile.get('row_count')
-            column_count = table_profile.get('columnCount') or table_profile.get('column_count')
-        else:
-            row_count = getattr(table_profile, 'rowCount', None) or getattr(table_profile, 'row_count', None)
-            column_count = getattr(table_profile, 'columnCount', None) or getattr(table_profile, 'column_count', None)
-        
-        # For this scaffold, we'll return placeholder metrics
-        # In a full implementation, we'd calculate actual quality scores
-        return {
-            "completeness": 0.95,  # Placeholder
-            "uniqueness": 0.90,    # Placeholder
-            "validity": 0.85,      # Placeholder
-            "quality_score": 0.90  # Overall quality score
-        }
-    
-    def _calculate_quality_metrics_from_entity(self, entity_details: Any) -> Dict[str, Any]:
-        """
-        Calculate quality metrics from entity details (available MCP tool).
-        
-        Args:
-            entity_details: Entity details dict from get_entity_details
-            
-        Returns:
-            Dictionary of quality metrics derived from entity metadata
-        """
-        if isinstance(entity_details, dict):
-            columns = entity_details.get('columns', [])
-            description = entity_details.get('description', '')
-            table_type = entity_details.get('tableType', 'Unknown')
-        else:
-            columns = []
-            description = ''
-            table_type = 'Unknown'
-        
-        # Calculate metrics based on available metadata
-        column_count = len(columns) if columns else 0
-        has_description = bool(description and description.strip())
-        column_names = [col.get('name', '') for col in columns] if columns else []
-        
-        # Simple heuristics for quality indicators
-        null_count = sum(1 for col in columns if col.get('constraint') == 'NULL') if columns else 0
-        null_percentage = (null_count / column_count * 100) if column_count > 0 else 0
-        
-        # Calculate completeness based on description presence and column info
-        completeness = 0.9 if has_description else 0.6
-        
-        # Calculate quality score based on available metadata
-        quality_score = (completeness + 0.9 + 0.85) / 3
-        
-        return {
-            "completeness": completeness,
-            "uniqueness": 0.9 if column_count > 0 else 0.0,
-            "validity": 0.85,
-            "quality_score": round(quality_score, 2),
-            "column_count": column_count,
-            "has_description": has_description,
-            "table_type": table_type,
-            "null_percentage": round(null_percentage, 2)
-        }
-    
-    def _detect_anomalies_from_columns(self, entity_details: Any, table_fqn: str) -> List[Dict[str, Any]]:
-        """
-        Detect anomalies based on column information from entity details.
-        
-        Args:
-            entity_details: Entity details from get_entity_details
-            table_fqn: Fully qualified name of the table
-            
-        Returns:
-            List of anomaly dictionaries
-        """
-        anomalies = []
-        
-        if isinstance(entity_details, dict):
-            columns = entity_details.get('columns', [])
-        else:
-            columns = []
-        
-        if not columns:
-            anomalies.append({
-                "type": "no_columns",
-                "severity": "warning",
-                "message": "Table has no columns defined",
-                "table_fqn": table_fqn
-            })
-            return anomalies
-        
-        # Check for potential PII-like column names (without actual data access)
-        pii_indicators = ['ssn', 'password', 'secret', 'credit', 'card', 'cvv', 'pin']
-        for col in columns:
-            col_name_lower = col.get('name', '').lower()
-            for indicator in pii_indicators:
-                if indicator in col_name_lower:
-                    anomalies.append({
-                        "type": "potential_pii_column",
-                        "severity": "info",
-                        "column": col.get('name'),
-                        "message": f"Column '{col.get('name')}' may contain sensitive data",
-                        "table_fqn": table_fqn
-                    })
-                    break
-        
-        # Check for columns without descriptions
-        for col in columns:
-            col_desc = col.get('description', '')
-            if not col_desc or not col_desc.strip():
-                anomalies.append({
-                    "type": "missing_column_description",
-                    "severity": "info",
-                    "column": col.get('name'),
-                    "message": f"Column '{col.get('name')}' lacks description",
-                    "table_fqn": table_fqn
-                })
-        
-        return anomalies[:10]  # Limit to 10 anomalies
+            logger.error(f"[QualityGuardian] Execution failed: {e}", exc_info=True)
+            return f"Error: {str(e)}"
 
 
 # Self-register on import

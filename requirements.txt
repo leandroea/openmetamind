@@ -1,15 +1,14 @@
 # Core dependencies
-langgraph>=0.2
+langgraph
 langgraph-checkpoint-sqlite
-langchain>=0.3
+langchain
 langchain-openai
+langchain-mcp-adapters
 langchain-core
-pydantic>=2
+pydantic
 pydantic-settings
-fastapi
-uvicorn[standard]
-streamlit>=1.40
-slack-bolt>=1.20
+streamlit
+slack-bolt
 pytest
 pytest-asyncio
 httpx

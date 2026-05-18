@@ -172,3 +172,7 @@ package/
 
 # Others
 .cache
+
+# Project-specific
+plans/
+TESTING_GUIDE.md

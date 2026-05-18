@@ -9,8 +9,6 @@ dependencies = [
     "langchain-openai",
     "pydantic>=2",
     "pydantic-settings",
-    "fastapi",
-    "uvicorn[standard]",
     "streamlit>=1.40",
     "slack-bolt>=1.20",
     "pytest",
